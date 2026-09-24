@@ -28,6 +28,7 @@ use crate::frame::{
     CropSource, Rect, EMPTY_RECT,
 };
 use crate::geom;
+use crate::header::{Header, Units};
 use crate::text::decode_text;
 
 pub use output::WrittenFile;
@@ -182,7 +183,7 @@ impl Default for ExportOptions {
     }
 }
 
-/// Why [`export_package`] or [`export_file`] wrote no package.
+/// Why [`export_package`] wrote no package.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ExportError {
@@ -198,8 +199,6 @@ pub enum ExportError {
     Json(serde_json::Error),
     /// The whole-model `entities.json` could not be serialized.
     Model(uncad_model::JsonError),
-    /// [`export_file`] could not read the drawing.
-    Parse(uncad::ParseError),
 }
 
 impl std::fmt::Display for ExportError {
@@ -212,7 +211,6 @@ impl std::fmt::Display for ExportError {
             ExportError::Encode(e) => write!(f, "PNG encoding failed: {e}"),
             ExportError::Json(e) => write!(f, "JSON serialization failed: {e}"),
             ExportError::Model(e) => write!(f, "entities.json failed: {e}"),
-            ExportError::Parse(e) => write!(f, "cannot read the drawing: {e}"),
         }
     }
 }
@@ -224,7 +222,6 @@ impl std::error::Error for ExportError {
             ExportError::Render(e) => Some(e),
             ExportError::Json(e) => Some(e),
             ExportError::Model(e) => Some(e),
-            ExportError::Parse(e) => Some(e),
             ExportError::Encode(_) => None,
         }
     }
@@ -600,33 +597,11 @@ pub fn compact_string(s: &str) -> String {
     normalize_string(s).replace(' ', "")
 }
 
-/// Parses the drawing at `input` with its header and writes its package
-/// into `dir` -- [`export_package`] for a file. When `options` names no
-/// source, the manifest records the file's name.
-pub fn export_file(
-    input: &Path,
-    dir: &Path,
-    options: &ExportOptions,
-) -> Result<ExportReport, ExportError> {
-    let (db, header) = uncad::parse_with_header(input).map_err(ExportError::Parse)?;
-    let named;
-    let options = if options.source_name.is_none() {
-        named = ExportOptions {
-            source_name: input.file_name().map(|n| n.to_string_lossy().into_owned()),
-            ..options.clone()
-        };
-        &named
-    } else {
-        options
-    };
-    export_package(&db, Some(&header), dir, options)
-}
-
 /// Writes the package for `db` into `dir` (created if needed). `header` is
-/// the drawing's header as [`uncad::parse_with_header`] returns it -- the
-/// units, the extents the `Auto` crop may take, `$LUPREC` and the dimension
-/// variables a style falls back on; without one the package says its units
-/// are drawing units (`du`) and uses the format's defaults.
+/// the drawing's [`Header`] -- the units, the extents the `Auto` crop may
+/// take, `$LUPREC` and the dimension variables a style falls back on;
+/// without one the package says its units are drawing units (`du`) and
+/// uses the format's defaults.
 ///
 /// A previous iron-pack-cad package in `dir` is cleared first -- every file its
 /// `manifest.json` listed, and the directories under `frames/` and
@@ -636,7 +611,7 @@ pub fn export_file(
 /// finished package.
 pub fn export_package(
     db: &CadDatabase,
-    header: Option<&uncad::Header>,
+    header: Option<&Header>,
     dir: &Path,
     options: &ExportOptions,
 ) -> Result<ExportReport, ExportError> {
@@ -728,7 +703,7 @@ pub fn export_package(
         )?;
 
     // --- units and rounding -----------------------------------------------
-    let units = header.and_then(uncad::Header::units);
+    let units = header.and_then(Header::units);
     let unit = units.as_ref().map_or("du".to_string(), |u| u.name.clone());
     let levels = i32::try_from(options.max_levels)
         .unwrap_or(i32::MAX)
@@ -1424,7 +1399,7 @@ fn geometry_records(
     shown: &[(&Part, &Entity)],
     extent_of: &BTreeMap<EntityId, Rect>,
     texts: &[PlacedText],
-    units: Option<&uncad::Units>,
+    units: Option<&Units>,
     unit: &str,
     rounder: &Rounder,
 ) -> (Vec<Record>, Vec<Record>) {
@@ -1796,7 +1771,7 @@ fn block_records(
             .collect();
         // Where the block's origin lands: the placement the model computes,
         // its own plane included.
-        let placement = uncad_model::Affine2::from_insert(i);
+        let placement = geom::insert_to_world(i);
         let mut v = Map::new();
         v.insert("id".into(), json!(id));
         v.insert("handle".into(), handle_of(&i.common));
@@ -1828,7 +1803,7 @@ fn block_records(
 /// instances, and the entity counts.
 fn drawing_json(
     db: &CadDatabase,
-    header: Option<&uncad::Header>,
+    header: Option<&Header>,
     parts: &[Part],
     top: &BTreeMap<EntityId, &Entity>,
     instances: &BTreeMap<String, Vec<String>>,
@@ -1908,7 +1883,7 @@ fn drawing_json(
 }
 
 struct ManifestInput<'a, 'w> {
-    header: Option<&'a uncad::Header>,
+    header: Option<&'a Header>,
     options: &'a ExportOptions,
     writer: &'a mut Writer<'w>,
     crop: &'a CropReport,
@@ -2017,7 +1992,7 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
         "profile": profile.name,
         "source": {
             "name": m.options.source_name,
-            "format": m.header.map(|h| h.format),
+            "format": m.header.and_then(|h| h.format.clone()),
             "acadver": m.header.and_then(|h| h.acadver.clone()),
             "version": m.header.and_then(|h| h.version.clone()),
             "codepage": m.header.and_then(|h| h.codepage_name.clone()),

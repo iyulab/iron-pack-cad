@@ -8,8 +8,8 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use common::*;
-use serde_json::Value;
 use iron_pack_cad::{ExportOptions, Profile};
+use serde_json::Value;
 use uncad_model::model::Entity;
 
 fn example_2000() -> String {

@@ -1,16 +1,15 @@
-//! A DWG/DXF drawing as a package an LLM or a vision model can read.
+//! A CAD drawing as a package an LLM or a vision model can read.
 //!
-//! [`uncad`] parses a drawing into the neutral [`uncad_model`] entity model
-//! and draws nothing; `iron-render-cad` draws that model and knows nothing
-//! of who looks at the picture. This crate is the consumer between them that
-//! writes for one kind of reader: images sized to a model's patch budget,
-//! and JSON records with the exact numbers a picture cannot give --
-//! lengths, areas, dimension values, texts -- each pointing at the pixels it
-//! is drawn in.
+//! The drawing comes in as the neutral [`uncad_model`] entity model, read by
+//! whatever parser the caller uses; `iron-render-cad` draws that model and
+//! knows nothing of who looks at the picture. This crate writes for one kind
+//! of reader: images sized to a model's patch budget, and JSON records with
+//! the exact numbers a picture cannot give -- lengths, areas, dimension
+//! values, texts -- each pointing at the pixels it is drawn in. It reads no
+//! files.
 //!
-//! [`export_package`] writes the package of a parsed drawing (with its
-//! [`uncad::Header`], which the model does not carry), [`export_file`] of a
-//! file:
+//! [`export_package`] writes the package of a drawing, with its [`Header`]
+//! (which the model does not carry) when the caller has one:
 //!
 //! ```text
 //! dir/
@@ -78,13 +77,15 @@ pub mod dimension;
 pub mod fonts;
 pub mod frame;
 pub mod geom;
+pub mod header;
 pub mod text;
 
 mod package;
 
 pub use frame::{CropMode, CropSource, Rect};
+pub use header::{Header, Units};
 pub use package::{
-    compact_string, export_file, export_package, normalize_string, Counts, CropReport,
-    ExcludeReason, Excluded, ExportError, ExportOptions, ExportReport, FrameReport, HeightClass,
-    ImageInfo, LevelInfo, Profile, SheetReport, SheetViewport, WrittenFile, SCHEMA,
+    compact_string, export_package, normalize_string, Counts, CropReport, ExcludeReason, Excluded,
+    ExportError, ExportOptions, ExportReport, FrameReport, HeightClass, ImageInfo, LevelInfo,
+    Profile, SheetReport, SheetViewport, WrittenFile, SCHEMA,
 };

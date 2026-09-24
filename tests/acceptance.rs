@@ -9,8 +9,8 @@ mod common;
 use std::path::Path;
 
 use common::*;
-use serde_json::Value;
 use iron_pack_cad::ExportOptions;
+use serde_json::Value;
 
 /// The records of a kind, following the manifest's shard index the way an
 /// agent would.

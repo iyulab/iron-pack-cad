@@ -6,11 +6,11 @@
 //! formats that do not; `dimlfac12_r2000.dxf` is this project's own fixture
 //! (ground truth in crates/uncad/tests/fixtures/README.md).
 
-use uncad::Entity;
 use iron_pack_cad::dimension::{
     cached_labels, display_text, is_angular, measurement_from_points, usable_stored_measurement,
     DimDefaults, DisplaySource, EffectiveStyle,
 };
+use uncad::Entity;
 use uncad_model::model::{DimensionEntity, DimensionKind};
 
 const TEST_DATA: &str = concat!(

@@ -8,10 +8,8 @@
 //! consumer's derivations, and every one of them is exact arithmetic on
 //! what the file states, not an estimate.
 
-use uncad_model::model::{
-    Confidence, EntityCommon, EntityId, InsertEntity, Origin, Point2D, Point3D, PolylineVertex, Ref,
-};
-use uncad_model::Affine2;
+use uncad_model::model::{InsertEntity, Point2D, Point3D, PolylineVertex};
+use uncad_model::{Affine2, Ocs};
 
 /// The circular arc a bulge describes between two vertices.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -308,40 +306,34 @@ pub fn point_in_polygon(p: Point2D, vertices: &[Point2D]) -> bool {
 /// identity for the usual normal (0, 0, 1), a mirror across the y axis for
 /// (0, 0, -1).
 ///
-/// Computed by the model's own [`Affine2::from_insert`] -- which applies
-/// exactly this map to an INSERT's placement -- for an unscaled, unrotated
-/// reference at the plane's origin, so the package and every other
-/// consumer of the model agree on the algorithm to the bit. A normal that
-/// is not a direction places the entity as (0, 0, 1) would, as it does
-/// there.
+/// The axes are the model's own [`Ocs`], so the package and every other
+/// consumer of the model agree on the algorithm to the bit. A plane
+/// parallel to the world's maps exactly; a tilted one is seen from above,
+/// the plane's height moving it along the projection of its normal. A
+/// normal that is not a direction places the entity as (0, 0, 1) would.
 pub fn plane_to_world(extrusion: Point3D, elevation: f64) -> Affine2 {
-    let unit = InsertEntity {
-        common: EntityCommon {
-            id: EntityId::new(0),
-            origin: Origin::Derived,
-            confidence: Confidence::High,
-            source_handle: Ref::Absent,
-            layer: Ref::Absent,
-            color_index: 256,
-            true_color: None,
-            invisible: false,
-        },
-        block_name: Ref::Absent,
-        insertion_point: Point3D {
-            x: 0.0,
-            y: 0.0,
-            z: elevation,
-        },
-        scale: Point3D {
-            x: 1.0,
-            y: 1.0,
-            z: 1.0,
-        },
-        rotation: 0.0,
-        attribs: Vec::new(),
-        extrusion,
-    };
-    Affine2::from_insert(&unit)
+    let plane = Ocs::of(extrusion).unwrap_or(Ocs::WORLD);
+    let (x, y, z) = (plane.x_axis(), plane.y_axis(), plane.z_axis());
+    Affine2 {
+        a: x.x,
+        b: x.y,
+        c: y.x,
+        d: y.y,
+        e: elevation * z.x,
+        f: elevation * z.y,
+    }
+}
+
+/// Where an INSERT puts its block's entities in the world's XY: the
+/// model's [`InsertEntity::world_transform`] for a reference in a plane
+/// parallel to the world's, and otherwise its placement in its own plane
+/// with that plane seen from above ([`plane_to_world`]).
+pub fn insert_to_world(insert: &InsertEntity) -> Affine2 {
+    insert.world_transform().unwrap_or_else(|| {
+        insert
+            .transform()
+            .then(&plane_to_world(insert.extrusion, insert.insertion_point.z))
+    })
 }
 
 /// Whether `m` keeps shapes: a rotation, a uniform scale and possibly one

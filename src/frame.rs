@@ -209,7 +209,7 @@ pub enum CropSource {
 /// The header's `$EXTMIN/$EXTMAX` as a rectangle, when both are stated and
 /// they make a sane one (see [`Rect::is_sane`]); AutoCAD writes `1e20`
 /// when it never computed them.
-pub fn header_extents(header: &uncad::Header) -> Option<Rect> {
+pub fn header_extents(header: &crate::Header) -> Option<Rect> {
     let (min, max) = (header.extmin?, header.extmax?);
     let rect = Rect::new(min.x, min.y, max.x, max.y);
     rect.is_sane().then_some(rect)

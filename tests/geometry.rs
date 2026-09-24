@@ -3,8 +3,8 @@
 //! segment is a 110-degree arc -- whose length and area are checked here
 //! against a computation that does not go through this crate.
 
-use uncad::Entity;
 use iron_pack_cad::geom;
+use uncad::Entity;
 use uncad_model::model::{LwPolylineEntity, PolylineVertex};
 
 const EXAMPLE_2000_DWG: &str = concat!(

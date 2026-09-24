@@ -45,7 +45,7 @@ pub struct DimDefaults {
 
 impl DimDefaults {
     /// The variables `header` states.
-    pub fn from_header(header: &uncad::Header) -> DimDefaults {
+    pub fn from_header(header: &crate::Header) -> DimDefaults {
         DimDefaults {
             dimlfac: header.dimlfac,
             dimdec: header.dimdec,
@@ -592,7 +592,9 @@ pub fn tolerance_text_height(t: &ToleranceEntity, tables: &Tables) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uncad_model::model::{Confidence, DimensionPoints, EntityCommon, EntityId, Origin, Ref};
+    use uncad_model::model::{
+        Confidence, DimensionPoints, EntityCommon, EntityId, EntityLinetype, Origin, Ref,
+    };
     use uncad_model::Point2D;
 
     fn p(x: f64, y: f64) -> Point3D {
@@ -622,6 +624,10 @@ mod tests {
                 color_index: 256,
                 true_color: None,
                 invisible: false,
+                linetype: EntityLinetype::ByLayer,
+                linetype_scale: 1.0,
+                lineweight: None,
+                transparency: None,
             },
             block_name: Ref::Resolved("*D1".into()),
             kind: Some(kind),

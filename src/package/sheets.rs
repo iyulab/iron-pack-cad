@@ -204,6 +204,11 @@ fn sheet_specs(db: &CadDatabase, unit: &str) -> (Vec<SheetSpec>, Option<CadDatab
                             scale_numerator: 0.0,
                             scale_denominator: 0.0,
                         },
+                        paper_space_linetype_scaling: false,
+                        limits_check: false,
+                        extents_min: None,
+                        extents_max: None,
+                        active_viewport: Ref::Absent,
                     },
                 );
             }
