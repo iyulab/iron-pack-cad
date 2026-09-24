@@ -90,15 +90,17 @@ impl Profile {
         lattice: 32,
     };
 
-    /// The profiles by name: `claude`, `claude-hires`, `openai-patch`.
+    /// Every profile, the default first -- what [`Profile::by_name`] looks
+    /// names up in, so a caller can list the names it accepts.
+    pub const ALL: [Profile; 3] = [
+        Profile::CLAUDE,
+        Profile::CLAUDE_HIRES,
+        Profile::OPENAI_PATCH,
+    ];
+
+    /// The profile in [`Profile::ALL`] with this name.
     pub fn by_name(name: &str) -> Option<Profile> {
-        [
-            Profile::CLAUDE,
-            Profile::CLAUDE_HIRES,
-            Profile::OPENAI_PATCH,
-        ]
-        .into_iter()
-        .find(|p| p.name == name)
+        Profile::ALL.into_iter().find(|p| p.name == name)
     }
 }
 
@@ -2046,6 +2048,11 @@ mod tests {
             Some(Profile::OPENAI_PATCH)
         );
         assert_eq!(Profile::by_name("gemini"), None);
+        // Every listed profile is found by its own name, the default first.
+        assert_eq!(Profile::ALL[0], Profile::default());
+        for p in Profile::ALL {
+            assert_eq!(Profile::by_name(p.name), Some(p));
+        }
     }
 
     #[test]
