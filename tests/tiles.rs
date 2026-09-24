@@ -1089,7 +1089,8 @@ fn the_package_explains_its_own_compact_forms() {
         "confidence",
         "text_records",
         "ids",
-        "measurement_source",
+        "dimension_values",
+        "display_value_from",
         "display_source",
         "region_labels",
         "px_boxes",
@@ -1103,7 +1104,6 @@ fn the_package_explains_its_own_compact_forms() {
     for record in records(&tmp.0, "geometry")
         .iter()
         .chain(records(&tmp.0, "regions").iter())
-        .chain(records(&tmp.0, "dimensions").iter())
     {
         let value = record["confidence"].as_str().expect("a confidence");
         assert!(

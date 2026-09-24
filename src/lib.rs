@@ -64,8 +64,8 @@
 //! drawn extents before the frames are grouped and the tiles culled; a
 //! record's id is the model's reference ID (a path of them for a text
 //! inside a block), and the file's handle is beside it. What the package
-//! derives -- a text's readable string ([`text`]), a dimension's value, the
-//! trust in its stored measurement and its label ([`dimension`]), lengths,
+//! derives -- a text's readable string ([`text`]), the value a dimension's
+//! definition points give and its label ([`dimension`]), lengths,
 //! areas and outlines ([`geom`]), the frame of each picture ([`frame`]) --
 //! is computed here, not by the model or the renderer.
 //!

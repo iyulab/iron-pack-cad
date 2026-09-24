@@ -9,6 +9,7 @@ Input is the [uncad-model](https://github.com/iyulab/uncad-model) entity model; 
 ## What it is not
 
 - Not a file parser. It takes a drawing already read into the model.
+- Not a judge. Where a drawing states two values that may disagree -- a dimension's stored measurement and the one its points give -- both are written as facts, with their difference; which one to trust is the reader's decision.
 - Not an ML library. It performs no inference.
 
 ## Status

@@ -1,16 +1,21 @@
 //! Dimension values: the measurement a DIMENSION stores, the same quantity
-//! recomputed from its definition points, whether the stored one can be
-//! believed, and the text the drawing shows for it.
+//! recomputed from its definition points, and the text the drawing shows
+//! for it.
+//!
+//! The stored measurement and the one the points give are two facts, and
+//! they can disagree -- a file may carry a stale or foreign value. Both are
+//! reported as they are, with their difference; which one to take is not
+//! decided here.
 //!
 //! The model carries what the file states: `measurement` (DXF 42 as
 //! written, radians for an angular kind; `None` for the 0 and -1 writers
 //! leave when they did not measure), the definition points by DXF group,
 //! the text override, the style's name, and the anonymous `*D` block the
 //! drawn dimension is cached in. Everything a reader wants on top of that is
-//! derived here, in this order of trust for the label: a text override that
-//! is only whitespace means "no text"; an override wins over the cache
-//! (`<>` in it standing for the measurement); the cache over a value this
-//! crate formats itself.
+//! derived here, in the order a CAD application shows the label: a text
+//! override that is only whitespace means "no text"; an override wins over
+//! the cache (`<>` in it standing for the measurement); the cache over a
+//! value this crate formats itself.
 //!
 //! The formatter is deliberately basic -- decimal, architectural and
 //! fractional units at the style's precision, `DIMRND` rounding, `DIMZIN`'s
@@ -195,62 +200,30 @@ pub fn is_angular(kind: Option<DimensionKind>) -> bool {
     )
 }
 
-/// How far a stored measurement may sit from the one the definition points
-/// give before it is treated as not a measurement of this dimension at all.
-///
-/// Derived from the corpus, not chosen: across all 26 `example_*` /
-/// `sample_*` files and the nine `AutoCADSamples*.dwg`, every DIMENSION
-/// whose file wrote a real `act_measurement` agrees with
-/// [`measurement_from_points`] to better than 2.3e-7 relative (one
-/// dimension in `example_20xx` differs at all; the rest are exact). The
-/// values this rejects are off by 100 %. 1 % leaves four orders of
-/// magnitude of headroom over the worst honest disagreement.
-const MEASUREMENT_DISAGREEMENT: f64 = 0.01;
-
-/// The measurement a DIMENSION stores when it can be believed, in the unit
-/// the package reports: degrees for an angular kind, drawing units (before
-/// `DIMLFAC`) otherwise. `None` means "ask the definition points instead".
+/// The measurement a DIMENSION stores, in the unit the package reports:
+/// degrees for an angular kind (the file stores radians), drawing units
+/// (before `DIMLFAC`) otherwise. `None` when the file states none.
 ///
 /// The model already reads the writers' "not measured" values -- 0, and
-/// -1 -- as not stated. What is left is the file's value, which is refused
-/// here when
-/// - it is not finite, or is exactly -1 (a model built another way may
-///   still carry it);
-/// - it is negative or zero and the kind's measurement cannot be (every
-///   kind but ORDINATE, which is a signed offset from a datum);
-/// - it disagrees with the definition points by more than 1 %. Magnitudes
-///   are compared, so a sign convention reconstructed differently
-///   (ORDINATE's datum axis) does not throw a good value away, and a
-///   computed value of 0 is no evidence against a stored one.
-pub fn usable_stored_measurement(
-    stored: Option<f64>,
-    kind: Option<DimensionKind>,
-    from_points: Option<f64>,
-) -> Option<f64> {
+/// -1 -- as not stated; a model built another way may still carry them, so
+/// they are read the same way here: a value that is not finite, -1, or 0
+/// for any kind but ORDINATE (a signed offset from a datum, for which 0 is
+/// a measurement). Nothing else is refused: a value that disagrees with the
+/// definition points is still what the file stores.
+pub fn stored_measurement(stored: Option<f64>, kind: Option<DimensionKind>) -> Option<f64> {
     let stored = stored.filter(|v| v.is_finite())?;
-    if stored == -1.0 {
+    if stored == -1.0 || (stored == 0.0 && kind != Some(DimensionKind::Ordinate)) {
         return None;
     }
-    let signed = kind == Some(DimensionKind::Ordinate);
-    let value = if is_angular(kind) {
+    Some(if is_angular(kind) {
         stored.to_degrees()
     } else {
         stored
-    };
-    if !signed && value <= 0.0 {
-        return None;
-    }
-    if let Some(computed) = from_points {
-        let (a, b) = (value.abs(), computed.abs());
-        if b != 0.0 && (a - b).abs() > MEASUREMENT_DISAGREEMENT * a.max(b) {
-            return None;
-        }
-    }
-    Some(value)
+    })
 }
 
 /// The quantity a dimension's definition points measure, with the meaning
-/// [`usable_stored_measurement`] gives a stored one: drawing units for
+/// [`stored_measurement`] gives a stored one: drawing units for
 /// linear kinds (before `DIMLFAC`), degrees for angular kinds, the arc
 /// length for an arc-length dimension, a signed offset for an ordinate.
 /// `None` for an unknown kind, or when a point the kind needs is missing.
@@ -481,6 +454,17 @@ pub enum DisplaySource {
     Suppressed,
 }
 
+/// Which of a dimension's two values this crate formatted into a label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValueFrom {
+    /// The value the definition points give -- what a CAD application
+    /// draws a label from.
+    Points,
+    /// The stored measurement, when the points give none.
+    Stored,
+}
+
 /// A dimension's label, as a reader sees it and as the file wrote it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayText {
@@ -490,6 +474,10 @@ pub struct DisplayText {
     /// empty for a label this crate formatted.
     pub raw: String,
     pub source: DisplaySource,
+    /// The value this crate formatted into the label -- for
+    /// [`DisplaySource::Formatted`], and for an override whose `<>` it
+    /// filled in; `None` when no number of this crate's is in the label.
+    pub value_from: Option<ValueFrom>,
 }
 
 /// The text inside a dimension's cached block: `(raw, plain)`, the block's
@@ -515,48 +503,60 @@ pub fn cached_label(block: &BlockRecord) -> Option<(String, String)> {
     (!plain.trim().is_empty()).then(|| (raw.join(" "), plain))
 }
 
-/// The label of `d`, by the precedence in the module docs. `value` is the
-/// measurement to format (see [`usable_stored_measurement`] and
-/// [`measurement_from_points`]), `cached` its block's label.
+/// The label of `d`, by the precedence in the module docs. `from_points`
+/// and `stored` are its two values ([`measurement_from_points`],
+/// [`stored_measurement`]); where the label needs a number this crate
+/// formats, it formats the one the points give -- what a CAD application
+/// draws the label from -- and the stored one only when the points give
+/// none, and says which in [`DisplayText::value_from`]. `cached` is the
+/// label of its block.
 pub fn display_text(
     d: &DimensionEntity,
     style: &EffectiveStyle,
-    value: Option<f64>,
+    from_points: Option<f64>,
+    stored: Option<f64>,
     cached: Option<&(String, String)>,
 ) -> DisplayText {
-    let formatted = value.map(|v| format_measurement(v, is_angular(d.kind), style));
+    let value = match (from_points, stored) {
+        (Some(v), _) => Some((v, ValueFrom::Points)),
+        (None, Some(v)) => Some((v, ValueFrom::Stored)),
+        (None, None) => None,
+    };
+    let formatted = value.map(|(v, from)| (format_measurement(v, is_angular(d.kind), style), from));
+    let text_only = |text: String, raw: String, source| DisplayText {
+        text,
+        raw,
+        source,
+        value_from: None,
+    };
     match &d.text_override {
-        TextOverride::Suppressed => DisplayText {
-            text: String::new(),
-            raw: " ".to_string(),
-            source: DisplaySource::Suppressed,
-        },
-        TextOverride::Literal(s) if s.trim().is_empty() => DisplayText {
-            text: String::new(),
-            raw: s.clone(),
-            source: DisplaySource::Suppressed,
-        },
-        TextOverride::Literal(s) => DisplayText {
-            text: decode_mtext(&s.replace("<>", formatted.as_deref().unwrap_or(""))).plain,
-            raw: s.clone(),
-            source: DisplaySource::UserText,
-        },
+        TextOverride::Suppressed => {
+            text_only(String::new(), " ".to_string(), DisplaySource::Suppressed)
+        }
+        TextOverride::Literal(s) if s.trim().is_empty() => {
+            text_only(String::new(), s.clone(), DisplaySource::Suppressed)
+        }
+        TextOverride::Literal(s) => {
+            let fills = s.contains("<>");
+            let number = formatted.as_ref().map_or("", |(text, _)| text.as_str());
+            DisplayText {
+                text: decode_mtext(&s.replace("<>", number)).plain,
+                raw: s.clone(),
+                source: DisplaySource::UserText,
+                value_from: formatted.as_ref().filter(|_| fills).map(|(_, from)| *from),
+            }
+        }
         TextOverride::Measured => match (cached, formatted) {
-            (Some((raw, plain)), _) => DisplayText {
-                text: plain.clone(),
-                raw: raw.clone(),
-                source: DisplaySource::CachedBlock,
-            },
-            (None, Some(text)) => DisplayText {
+            (Some((raw, plain)), _) => {
+                text_only(plain.clone(), raw.clone(), DisplaySource::CachedBlock)
+            }
+            (None, Some((text, from))) => DisplayText {
                 text,
                 raw: String::new(),
                 source: DisplaySource::Formatted,
+                value_from: Some(from),
             },
-            (None, None) => DisplayText {
-                text: String::new(),
-                raw: String::new(),
-                source: DisplaySource::None,
-            },
+            (None, None) => text_only(String::new(), String::new(), DisplaySource::None),
         },
     }
 }
@@ -822,74 +822,81 @@ mod tests {
 
         let mut d = base.clone();
         d.text_override = TextOverride::Suppressed;
-        let shown = display_text(&d, &style(), Some(10.0), Some(&cached));
+        let shown = display_text(&d, &style(), Some(10.0), None, Some(&cached));
         assert_eq!(
             (shown.text.as_str(), shown.source),
             ("", DisplaySource::Suppressed)
         );
         d.text_override = TextOverride::Literal("  ".into());
-        let shown = display_text(&d, &style(), Some(10.0), Some(&cached));
+        let shown = display_text(&d, &style(), Some(10.0), None, Some(&cached));
         assert_eq!(shown.source, DisplaySource::Suppressed);
+        assert_eq!(shown.value_from, None);
 
         d.text_override = TextOverride::Literal("<> TYP.".into());
-        let shown = display_text(&d, &style(), Some(10.0), Some(&cached));
+        let shown = display_text(&d, &style(), Some(10.0), Some(9.0), Some(&cached));
         assert_eq!(shown.text, "10.00 TYP.");
         assert_eq!(shown.raw, "<> TYP.");
         assert_eq!(shown.source, DisplaySource::UserText);
+        assert_eq!(shown.value_from, Some(ValueFrom::Points));
+        // An override with no `<>` holds no number of this crate's.
+        d.text_override = TextOverride::Literal("TYP.".into());
+        let shown = display_text(&d, &style(), Some(10.0), None, Some(&cached));
+        assert_eq!((shown.text.as_str(), shown.value_from), ("TYP.", None));
 
-        let shown = display_text(&base, &style(), Some(10.0), Some(&cached));
+        let shown = display_text(&base, &style(), Some(10.0), None, Some(&cached));
         assert_eq!(
             (shown.text.as_str(), shown.source),
             ("120", DisplaySource::CachedBlock)
         );
         assert_eq!(shown.raw, "\\A1;120");
+        assert_eq!(shown.value_from, None);
 
-        let shown = display_text(&base, &style(), Some(10.0), None);
+        // Formatted: the points' value, whatever the file stores beside it;
+        // the stored one only when the points give none.
+        let shown = display_text(&base, &style(), Some(10.0), Some(12.0), None);
         assert_eq!(
-            (shown.text.as_str(), shown.source),
-            ("10.00", DisplaySource::Formatted)
+            (shown.text.as_str(), shown.source, shown.value_from),
+            ("10.00", DisplaySource::Formatted, Some(ValueFrom::Points))
         );
-        let shown = display_text(&base, &style(), None, None);
+        let shown = display_text(&base, &style(), None, Some(12.0), None);
+        assert_eq!(
+            (shown.text.as_str(), shown.value_from),
+            ("12.00", Some(ValueFrom::Stored))
+        );
+        let shown = display_text(&base, &style(), None, None, None);
         assert_eq!(shown.source, DisplaySource::None);
     }
 
     #[test]
-    fn a_stored_measurement_that_cannot_be_this_dimensions_is_refused() {
-        // Expected values come from the geometry, not from the function:
-        // the ALIGNED pair (0,0)-(3,4) is 5 units apart (3-4-5), and the
-        // ORDINATE offset is 4 - 1.
+    fn a_stored_measurement_is_what_the_file_stores() {
+        // Expected values come from the geometry, not from the function.
         let aligned = Some(DimensionKind::Aligned);
         let ordinate = Some(DimensionKind::Ordinate);
-        let take = usable_stored_measurement;
+        let take = stored_measurement;
 
-        assert_eq!(take(Some(0.0), aligned, Some(5.0)), None);
-        assert_eq!(take(Some(0.0), aligned, None), None);
-        assert_eq!(take(Some(-1.0), aligned, Some(5.0)), None);
-        assert_eq!(take(Some(-5.0), aligned, Some(5.0)), None);
-        assert_eq!(take(Some(f64::NAN), aligned, Some(5.0)), None);
-        assert_eq!(take(None, aligned, Some(5.0)), None);
-        // A value that measures something else entirely.
-        assert_eq!(take(Some(500.0), aligned, Some(5.0)), None);
-        // A believable one survives, disagreement inside the tolerance
-        // included (5.02 is 0.4 % off 5.0).
-        assert_eq!(take(Some(5.0), aligned, Some(5.0)), Some(5.0));
-        assert_eq!(take(Some(5.02), aligned, Some(5.0)), Some(5.02));
-        assert_eq!(take(Some(5.0), aligned, None), Some(5.0));
+        // The writers' "not measured": 0 (for any kind but ORDINATE), -1,
+        // and anything not finite; no value at all.
+        assert_eq!(take(Some(0.0), aligned), None);
+        assert_eq!(take(Some(-1.0), aligned), None);
+        assert_eq!(take(Some(f64::NAN), aligned), None);
+        assert_eq!(take(Some(f64::INFINITY), aligned), None);
+        assert_eq!(take(None, aligned), None);
+        // Everything else is the file's value, whether or not it agrees
+        // with the definition points: 500 for a pair 5 units apart is kept.
+        assert_eq!(take(Some(500.0), aligned), Some(500.0));
+        assert_eq!(take(Some(5.02), aligned), Some(5.02));
+        assert_eq!(take(Some(-5.0), aligned), Some(-5.0));
 
-        // An ORDINATE is a signed offset from a datum, so 0 and a negative
-        // value are both measurements it can have ...
-        assert_eq!(take(Some(0.0), ordinate, Some(0.0)), Some(0.0));
-        assert_eq!(take(Some(-3.0), ordinate, Some(3.0)), Some(-3.0));
-        assert_eq!(take(Some(3.0), ordinate, Some(-3.0)), Some(3.0));
-        // ... but not one that disagrees with the points by 100 %.
-        assert_eq!(take(Some(0.0), ordinate, Some(3.0)), None);
+        // An ORDINATE is a signed offset from a datum: 0 and a negative
+        // value are both measurements it can have.
+        assert_eq!(take(Some(0.0), ordinate), Some(0.0));
+        assert_eq!(take(Some(-3.0), ordinate), Some(-3.0));
 
         // Angular kinds store radians and are reported in degrees.
         let angular = Some(DimensionKind::Angular3Point);
-        let quarter = std::f64::consts::FRAC_PI_2;
-        let got = take(Some(quarter), angular, Some(90.0)).expect("a right angle");
+        let got = take(Some(std::f64::consts::FRAC_PI_2), angular).expect("a right angle");
         assert!((got - 90.0).abs() < 1e-9, "{got}");
-        assert_eq!(take(Some(0.0), angular, Some(90.0)), None);
+        assert_eq!(take(Some(0.0), angular), None);
     }
 
     fn header(dimdec: u16, dimadec: u16, dimzin: u16) -> DimDefaults {

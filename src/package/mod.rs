@@ -19,7 +19,7 @@ use uncad_model::model::{Entity, EntityId};
 use uncad_model::{CadDatabase, ToJsonOptions};
 
 use crate::dimension::{
-    cached_labels, display_text, is_angular, measurement_from_points, usable_stored_measurement,
+    cached_labels, display_text, is_angular, measurement_from_points, stored_measurement,
     DimDefaults, EffectiveStyle,
 };
 use crate::fonts;
@@ -1283,8 +1283,9 @@ fn limits_json(
     })
 }
 
-/// The dimension records: every shown DIMENSION with its value, where the
-/// value came from, the value its points give, the label and its source.
+/// The dimension records: every shown DIMENSION with the measurement its
+/// file stores and the one its definition points give -- both, as facts,
+/// with their difference -- and the label with its source.
 fn dimension_records(
     db: &CadDatabase,
     shown: &[(&Part, &Entity)],
@@ -1303,17 +1304,7 @@ fn dimension_records(
         });
         let angular = is_angular(d.kind);
         let from_points = measurement_from_points(d);
-        let stored = usable_stored_measurement(d.measurement, d.kind, from_points);
-        // `confidence` follows the source, not merely "there is a number": a
-        // value the definition points gave is exact arithmetic on what the
-        // file stores, but it is not what the drawing was measured at, and
-        // a reader deciding whether to trust the number over the label
-        // needs the two kept apart.
-        let (measurement, source, confidence) = match (stored, from_points) {
-            (Some(m), _) => (Some(m), "act_measurement", "stored"),
-            (None, Some(p)) => (Some(p), "from_points", "exact"),
-            (None, None) => (None, "none", "unavailable"),
-        };
+        let stored = stored_measurement(d.measurement, d.kind);
         let delta = match (stored, from_points) {
             (Some(m), Some(p)) => Some(rounder.derived(m - p)),
             _ => None,
@@ -1324,8 +1315,13 @@ fn dimension_records(
                 .and_then(|name| db.tables.dim_styles.get(name)),
             defaults,
         );
-        let shown_text = display_text(d, &style, measurement, labels.get(d.block_name.name()));
-        let (confidence, why) = capped_confidence(confidence, d.common.confidence);
+        let shown_text = display_text(
+            d,
+            &style,
+            from_points,
+            stored,
+            labels.get(d.block_name.name()),
+        );
         let point = |p: Option<uncad_model::Point3D>| p.map_or(Value::Null, |p| rounder.pt3(p));
         let mut v = Map::new();
         v.insert("id".into(), json!(d.common.id.value().to_string()));
@@ -1334,10 +1330,9 @@ fn dimension_records(
         v.insert("layer".into(), json!(layer_name(&d.common.layer)));
         v.insert("dimstyle".into(), json!(d.style_name.name()));
         v.insert(
-            "measurement".into(),
-            json!(measurement.map(|m| rounder.derived(m))),
+            "measurement_stored".into(),
+            json!(stored.map(|m| rounder.derived(m))),
         );
-        v.insert("measurement_source".into(), json!(source));
         v.insert(
             "measurement_from_points".into(),
             json!(from_points.map(|m| rounder.derived(m))),
@@ -1353,6 +1348,9 @@ fn dimension_records(
             "display_source".into(),
             serde_json::to_value(shown_text.source)?,
         );
+        if let Some(from) = shown_text.value_from {
+            v.insert("display_value_from".into(), serde_json::to_value(from)?);
+        }
         if let uncad_model::model::TextOverride::Literal(s) = &d.text_override {
             v.insert("user_text".into(), json!(s));
         }
@@ -1377,10 +1375,6 @@ fn dimension_records(
         }
         v.insert("definition_point".into(), point(d.definition_point));
         v.insert("text_at".into(), rounder.pt2(d.text_midpoint));
-        v.insert("confidence".into(), json!(confidence));
-        if let Some(why) = why {
-            v.insert("why".into(), json!(why));
-        }
         v.insert("bbox".into(), rounder.rect(&bbox));
         out.push(Record {
             id: d.common.id.value().to_string(),
@@ -1904,13 +1898,14 @@ struct ManifestInput<'a, 'w> {
 
 fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
     let profile = m.options.profile;
-    // "exact" is reserved for values the file itself measured: a package of
-    // an R13/R14 drawing (no act_measurement anywhere) carries values this
-    // crate recomputed from the definition points.
-    let dim_source = |want: &str| {
+    // How many dimensions carry each of their two values: a package of an
+    // R13/R14 drawing stores none, and its dimensions have only the one
+    // their points give.
+    let dims_with = |field: &str| {
         m.dims
             .iter()
-            .any(|r| r.value.get("measurement_source").is_some_and(|s| s == want))
+            .filter(|r| r.value.get(field).is_some_and(|v| !v.is_null()))
+            .count()
     };
     // `areas` says what the region records say, the way `dimension_values`
     // does.
@@ -1942,7 +1937,7 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
         "custom"
     };
     let capabilities = json!({
-        "dimension_values": if m.dims.is_empty() { "none" } else if dim_source("act_measurement") { "exact" } else if dim_source("from_points") { "computed" } else { "text_only" },
+        "dimension_values": { "stored": dims_with("measurement_stored"), "from_points": dims_with("measurement_from_points") },
         "areas": if m.regions.is_empty() { "none" } else if areas_exact == m.regions.len() { "exact" } else if areas_exact > 0 { "mixed" } else if areas_unavailable > 0 && areas_estimated == 0 { "unavailable" } else { "estimated" },
         "areas_by_confidence": { "exact": areas_exact, "estimated": areas_estimated, "unavailable": areas_unavailable },
         "text_boxes": if m.texts.is_empty() { "none" } else if measured_total == m.texts.len() { "measured" } else if measured_total == 0 { "estimated" } else { "mixed" },
@@ -1953,17 +1948,17 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
     });
     let legend = json!({
         "confidence": {
-            "carried_by": ["geometry", "region", "dimension"],
+            "carried_by": ["geometry", "region"],
             "exact": "computed from the file's own coordinates",
-            "stored": "the value the file stores (a dimension's act_measurement)",
             "estimated": "approximated, or a check that was skipped; `why` says which",
             "unavailable": "no meaningful value; `why` says why, and any number beside it is not to be used",
             "none": "there was nothing to compute (used by capabilities, not by records)",
         },
         "text_records": "texts carry `bbox_confidence` (`measured` from the glyph outlines as the renderer laid them out, or `estimated` at 0.6 em per character) and no `confidence`; block instances carry neither. `space` is `model` or `paper`; a paper text names its `sheet` and is measured in that layout's paper units.",
         "ids": "a record's `id` is the drawing's entity reference ID in decimal (a path of them for a text inside a block); its `handle` is the file's own handle for the entity, in hexadecimal, when it came from a file",
-        "measurement_source": ["act_measurement", "from_points", "none"],
+        "dimension_values": "a dimension carries two values, as facts: `measurement_stored`, what the file stores (act_measurement; degrees for an angle), and `measurement_from_points`, what its definition points give; `delta` is stored minus from_points when both exist. They can disagree -- a file may carry a stale or foreign value -- and neither is chosen over the other here; a dimension carries no `confidence`",
         "display_source": ["user_text", "cached_block", "formatted", "suppressed", "none"],
+        "display_value_from": "when the label holds a number this package formatted (`formatted`, or `user_text` with `<>`), `points` or `stored` says which of the two values it is: the points' value, as a CAD application draws it, and the stored one only when the points give none",
         "region_labels": "`labels` holds the ids of the text records whose anchor falls inside the region",
         "px_boxes": "`px` maps an image id to [x0, y0, x1, y1] in that image's pixels, y down, clipped to the image; the record's full extent is its world `bbox`, and the rest of it is on the other images it lists",
         "tile_sidecar": "`records` holds positional rows described by the sidecar's own `columns`; `counts` is the true number of records of each kind on the tile, which `records_truncated` does not affect, and `geometry_by_kind` summarises the geometry whether or not its rows fit",

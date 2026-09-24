@@ -548,7 +548,8 @@ pub(crate) fn sidecar(
                     .and_then(Value::as_str)
                     .unwrap_or("")
             )),
-            field(rec, "measurement"),
+            field(rec, "measurement_stored"),
+            field(rec, "measurement_from_points"),
         ]
     });
     let mut block_rows = rows(&on_blocks, &|rec| vec![field(rec, "block")]);
@@ -617,7 +618,7 @@ pub(crate) fn sidecar(
             // What each positional row holds, beside the rows themselves.
             "columns": {
                 "texts": ["id", "px_box", "text"],
-                "dims": ["id", "px_box", "display", "measurement"],
+                "dims": ["id", "px_box", "display", "measurement_stored", "measurement_from_points"],
                 "blocks": ["id", "px_box", "block"],
                 "regions": ["id", "px_box", "area"],
                 "geometry": ["id", "px_box", "type"],

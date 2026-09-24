@@ -543,14 +543,14 @@ pub(crate) fn text_record(
 /// A record's `confidence`, never above the model's for the entity it is
 /// made from (the model's invariant: a value that entered low never leaves
 /// high). The model's `HIGH` changes nothing; below it, a value the package
-/// would call `exact` or `stored` is `estimated`, with the reason.
+/// would call `exact` is `estimated`, with the reason.
 pub(crate) fn capped_confidence(
     confidence: &'static str,
     model: Confidence,
 ) -> (&'static str, Option<&'static str>) {
     match (model, confidence) {
         (Confidence::High, _) => (confidence, None),
-        (_, "exact" | "stored") => (
+        (_, "exact") => (
             "estimated",
             Some("the reader that produced the model trusts this entity's values less than fully"),
         ),
@@ -625,7 +625,7 @@ mod tests {
         );
         assert_eq!(capped_confidence("exact", Confidence::Low).0, "estimated");
         assert_eq!(
-            capped_confidence("stored", Confidence::Unknown).0,
+            capped_confidence("exact", Confidence::Unknown).0,
             "estimated"
         );
         assert_eq!(
