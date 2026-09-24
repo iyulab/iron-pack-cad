@@ -146,6 +146,27 @@ pub fn by_handle<'a>(records: &'a [Value], handle: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("a record with handle {handle}"))
 }
 
+/// One of `tests/golden` -- a golden case as the entity model's golden
+/// writer wrote it -- read into the model, with its header.
+pub fn golden(name: &str) -> (CadDatabase, Header) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(name);
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let db = undxf::read_bytes(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+    (db, header_of(&bytes))
+}
+
+/// Reads a golden case with its header and exports it.
+pub fn export_golden(
+    name: &str,
+    dir: &Path,
+    options: &ExportOptions,
+) -> Result<ExportReport, ExportError> {
+    let (db, header) = golden(name);
+    export_package(&db, Some(&header), dir, options)
+}
+
 /// Reads a fixture with its header and exports it.
 pub fn export_fixture(
     name: &str,
