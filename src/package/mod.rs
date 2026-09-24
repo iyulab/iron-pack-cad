@@ -885,8 +885,15 @@ pub fn export_package(
         .into_iter()
         .map(&with_images)
         .collect::<Vec<_>>();
-    let (geo_records, region_records) =
-        geometry_records(&shown, &extent_of, &texts, units.as_ref(), &unit, &rounder);
+    let (geo_records, region_records) = geometry_records(
+        db,
+        &shown,
+        &extent_of,
+        &texts,
+        units.as_ref(),
+        &unit,
+        &rounder,
+    );
     let geo_records: Vec<Record> = geo_records.into_iter().map(&with_images).collect();
     let region_records: Vec<Record> = region_records.into_iter().map(&with_images).collect();
     let (block_records, instances) = block_records(&shown, &extent_of, &rounder);
@@ -1397,6 +1404,7 @@ fn dimension_records(
 /// dimension or a block instance, and measured an extent) and the region
 /// records (the closed polylines among them that enclose an area).
 fn geometry_records(
+    db: &CadDatabase,
     shown: &[(&Part, &Entity)],
     extent_of: &BTreeMap<EntityId, Rect>,
     texts: &[PlacedText],
@@ -1687,6 +1695,23 @@ fn geometry_records(
             Entity::Ray(r) | Entity::XLine(r) => {
                 v.insert("point".into(), rounder.pt3(r.point));
                 v.insert("vector".into(), rounder.pt3(r.vector));
+            }
+            // Where the image sits and which file it shows, as the drawing
+            // records them; the pixels are not part of the drawing.
+            Entity::Image(i) => {
+                v.insert("insertion".into(), rounder.pt3(i.insertion_point));
+                v.insert("u_vector".into(), rounder.pt3(i.u_vector));
+                v.insert("v_vector".into(), rounder.pt3(i.v_vector));
+                v.insert("size_px".into(), json!([i.size_pixels.x, i.size_pixels.y]));
+                let definition = i
+                    .definition
+                    .resolved()
+                    .and_then(|h| db.tables.image_definitions.get(h));
+                v.insert(
+                    "file_path".into(),
+                    json!(definition.and_then(|d| d.file_path.as_deref())),
+                );
+                v.insert("clipping".into(), json!(i.clipping));
             }
             _ => {
                 confidence = "estimated";

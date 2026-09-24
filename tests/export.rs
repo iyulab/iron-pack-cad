@@ -907,3 +907,63 @@ fn a_record_is_built_from_a_polyline_whose_first_vertex_repeats() {
     assert_eq!(regions[0]["perimeter"], 16.0);
     assert_eq!(regions[0]["simple"], true);
 }
+
+/// A raster image and the definition naming its file: the image is drawn as
+/// its outline, so it measures an extent and gets a geometry record that
+/// says where it sits and which file it shows.
+#[test]
+fn an_image_is_a_geometry_record_naming_its_file() {
+    use uncad_model::model::ImageEntity;
+    use uncad_model::tables::ImageDefinition;
+    let image = Entity::Image(ImageEntity {
+        common: common(0x20),
+        insertion_point: p3(10.0, 5.0),
+        u_vector: p3(0.5, 0.0),
+        v_vector: uncad_model::Point3D {
+            x: 0.0,
+            y: 0.5,
+            z: 0.0,
+        },
+        size_pixels: Point2D { x: 40.0, y: 20.0 },
+        definition: Ref::Resolved("80F".to_string()),
+        display_flags: Some(7),
+        clipping: Some(false),
+        brightness: Some(50),
+        contrast: Some(50),
+        fade: Some(0),
+        clip_outside: None,
+        boundary: Vec::new(),
+    });
+    let mut db = model_space(vec![line(0x10, 0.0, 0.0, 100.0, 0.0), image]);
+    db.tables.image_definitions.insert(
+        "80F".to_string(),
+        ImageDefinition {
+            file_path: Some("images/plan.png".to_string()),
+            size_pixels: Point2D { x: 40.0, y: 20.0 },
+            pixel_size: Point2D { x: 0.1, y: 0.1 },
+            loaded: Some(true),
+            resolution_unit: None,
+        },
+    );
+    let tmp = TempDir::new("image");
+    export_db(&db, &tmp.0, &ExportOptions::default()).expect("exports");
+    let geometry = records(&tmp.0, "geometry");
+    let image = geometry
+        .iter()
+        .find(|r| r["type"] == "IMAGE")
+        .expect("the image has a record");
+    assert_eq!(image["file_path"], "images/plan.png");
+    assert_eq!(image["size_px"], serde_json::json!([40.0, 20.0]));
+    assert_eq!(image["clipping"], false);
+    assert_eq!(image["confidence"], "exact");
+    // The whole frame: 20 x 10 drawing units from (10, 5).
+    let bbox = &image["bbox"];
+    assert_eq!(bbox, &serde_json::json!([10.0, 5.0, 30.0, 15.0]), "{image}");
+    let report = read_json(&tmp.0.join("report.json"));
+    assert!(
+        !report["unsupported_types"]
+            .as_array()
+            .is_some_and(|t| t.iter().any(|n| n == "IMAGE")),
+        "{report}"
+    );
+}
