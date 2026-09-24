@@ -406,8 +406,8 @@ mod tests {
     #[test]
     fn korean_text_passes_through() {
         assert_eq!(
-            plain_mtext("방 101\\P면적 32.5\u{33A1}"),
-            "방 101\n면적 32.5\u{33A1}"
+            plain_mtext("\u{bc29} 101\\P\u{ba74}\u{c801} 32.5\u{33A1}"),
+            "\u{bc29} 101\n\u{ba74}\u{c801} 32.5\u{33A1}"
         );
     }
 }

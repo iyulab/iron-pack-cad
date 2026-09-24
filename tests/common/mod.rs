@@ -348,7 +348,7 @@ pub fn attrib(id: u64, x: f64, y: f64, tag: &str, value: &str) -> AttribEntity {
 /// 610 x 350 units: a grid of 200 lines on the layers `GRID-A` and
 /// `GRID-B`, six texts and an MTEXT, three closed outlines on `AREA`, and
 /// twelve INSERTs of a four-line block `BOX`, each with an ATTRIB `NO` =
-/// `B-01` .. `B-12`.
+/// `BOX-01` .. `BOX-12`.
 pub fn sample_drawing() -> CadDatabase {
     let mut entities = Vec::new();
     for i in 0..200u64 {
@@ -409,7 +409,7 @@ pub fn sample_drawing() -> CadDatabase {
             x + 2.0,
             y + 2.0,
             "NO",
-            &format!("B-{:02}", i + 1),
+            &format!("BOX-{:02}", i + 1),
         );
         entities.push(insert(0x200 + i, "BOX", x, y, vec![value.clone()]));
         // A top-level INSERT's attribute values are top-level entities of
