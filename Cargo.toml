@@ -41,3 +41,8 @@ serde_json = "1.0.151"
 png = "0.18"
 # NFKC for the package's string index (㎡ -> m2, full-width digits, ...).
 unicode-normalization = "0.1"
+
+[dev-dependencies]
+# The tests' DXF fixtures are read with the MIT DXF reader, into the same
+# model a caller hands this crate.
+undxf = "0.1.0"

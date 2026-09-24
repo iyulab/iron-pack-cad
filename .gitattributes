@@ -1,2 +1,4 @@
 # The bundled font is binary data: never convert line endings.
 *.otf binary
+# The DXF fixtures keep their bytes: CRLF, and one is not UTF-8 by design.
+tests/fixtures/*.dxf -text

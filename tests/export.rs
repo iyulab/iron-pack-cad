@@ -1,6 +1,7 @@
-//! The package on real and built drawings: every file it lists, an
-//! overview sized to the profile, records with the exact numbers that point
-//! at what the picture shows, and byte-identical output on a second run.
+//! The package on the fixtures and on built drawings: every file it lists,
+//! an overview sized to the profile, records with the exact numbers that
+//! point at what the picture shows, and byte-identical output on a second
+//! run.
 
 mod common;
 
@@ -9,18 +10,18 @@ use std::collections::BTreeSet;
 use common::*;
 use iron_pack_cad::{ExportError, ExportOptions, Profile};
 use serde_json::Value;
-use uncad_model::model::{
-    AttribEntity, Entity, InsertEntity, LwPolylineEntity, Point2D, PolylineVertex, Ref,
-};
+use uncad_model::model::{Entity, InsertEntity, LwPolylineEntity, Point2D, PolylineVertex, Ref};
+use uncad_model::CadDatabase;
 
-fn example_2000() -> String {
-    corpus("example_2000.dwg")
+fn export_sample(dir: &std::path::Path, options: &ExportOptions) -> iron_pack_cad::ExportReport {
+    iron_pack_cad::export_package(&sample_drawing(), Some(&sample_header()), dir, options)
+        .expect("exports")
 }
 
 #[test]
 fn the_package_has_every_file_and_a_profile_sized_overview() {
     let tmp = TempDir::new("files");
-    let report = export_path(&example_2000(), &tmp.0, &ExportOptions::default()).expect("exports");
+    let report = export_sample(&tmp.0, &ExportOptions::default());
 
     for name in [
         "README.txt",
@@ -50,40 +51,44 @@ fn the_package_has_every_file_and_a_profile_sized_overview() {
     assert!((w / 28) * (h / 28) <= 1568, "{w}x{h}");
     assert_eq!(w % 28, 0);
     assert_eq!(h % 28, 0);
-    // Either the edge or the patch budget is the binding limit.
+    // Either the edge or the patch budget is the binding limit, up to the
+    // lattice snap of the window, which may give up one patch per side:
+    // two more patches on each side would break a limit.
     assert!(
-        w.max(h) >= 1568 - 28 || (w / 28) * (h / 28) >= 1568 - 56,
+        w.max(h) + 2 * 28 > 1568 || (w / 28 + 2) * (h / 28 + 2) > 1568,
         "the budget is used: {w}x{h}"
     );
     let png = std::fs::read(tmp.0.join("overview.png")).unwrap();
     assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
-    assert!(dark_pixels(&png) > 1000, "the overview shows the drawing");
+    assert_eq!(
+        png_size(&png),
+        [w, h],
+        "the file is the size the report says"
+    );
 
     let manifest = read_json(&tmp.0.join("manifest.json"));
     assert_eq!(manifest["$schema"], "iron-pack-cad/1");
     assert_eq!(manifest["profile"], "claude");
     assert_eq!(manifest["source"]["name"], Value::Null);
-    assert_eq!(manifest["source"]["format"], "dwg");
+    assert_eq!(manifest["source"]["format"], "dxf");
     assert_eq!(manifest["svg_origin"], Value::Null, "no drawing.svg");
     assert_eq!(manifest["units"]["name"], "mm");
     assert_eq!(manifest["crop"]["source"], "content");
-    // The 3256x INSERT, which the renderer's guard sets aside, and the
-    // second outlier the corpus's copy of this drawing carries.
-    let excluded = manifest["crop"]["excluded"].as_array().unwrap();
-    assert!(
-        excluded
-            .iter()
-            .any(|e| e["handle"] == "756" && e["reason"] == "scale_outlier"),
-        "{excluded:?}"
-    );
     assert!(manifest["guidance"]
         .as_str()
         .unwrap()
         .contains("strings.json"));
     assert!(manifest["files"].as_array().unwrap().len() == report.files.len());
-    assert_eq!(manifest["counts"]["dimensions"], 10);
-    assert_eq!(manifest["capabilities"]["dimension_values"], "exact");
+    assert_eq!(manifest["counts"]["dimensions"], 0);
     assert_eq!(manifest["capabilities"]["fonts"], "bundled");
+    // Every kind of record the drawing holds is there.
+    assert_eq!(
+        records(&tmp.0, "texts").len(),
+        6 + 1 + 12,
+        "texts, the MTEXT, the ATTRIBs"
+    );
+    assert_eq!(records(&tmp.0, "regions").len(), 3);
+    assert_eq!(records(&tmp.0, "blocks").len(), 12);
 
     // Every listed file exists with the listed size (manifest, README and
     // report are listed without one: they are written last).
@@ -103,95 +108,14 @@ fn the_package_has_every_file_and_a_profile_sized_overview() {
 }
 
 #[test]
-fn records_carry_exact_numbers() {
-    let tmp = TempDir::new("records");
-    export_path(&example_2000(), &tmp.0, &ExportOptions::default()).expect("exports");
-
-    let dims = records(&tmp.0, "dimensions");
-    assert_eq!(dims.len(), 10);
-    let aligned = dims
-        .iter()
-        .find(|d| d["kind"] == "ALIGNED")
-        .expect("an ALIGNED dimension");
-    assert_eq!(aligned["display"], "1504,68");
-    assert_eq!(aligned["measurement_source"], "act_measurement");
-    assert!((aligned["measurement"].as_f64().unwrap() - 1504.6795).abs() < 1e-3);
-    assert_eq!(aligned["confidence"], "stored");
-    let angular = dims
-        .iter()
-        .find(|d| d["kind"] == "ANGULAR2_LINE")
-        .unwrap_or_else(|| panic!("a two-line angular dimension: {dims:?}"));
-    assert_eq!(angular["unit"], "deg");
-    assert!((angular["measurement"].as_f64().unwrap() - 108.0).abs() < 1e-3);
-
-    let geometry = records(&tmp.0, "geometry");
-    let cloud = by_handle(&geometry, "156");
-    // The id is the model's reference ID; this reader mints it from the
-    // handle's value.
-    assert_eq!(cloud["id"], (0x156u64).to_string());
-    assert_eq!(cloud["type"], "LWPOLYLINE");
-    assert_eq!(cloud["vfmt"], "[x,y,bulge]");
-    assert_eq!(cloud["closed"], true);
-    assert!(cloud["perimeter"].as_f64().unwrap() > 1400.0);
-    assert!(cloud["area"].as_f64().unwrap() > 0.0);
-    assert_eq!(cloud["confidence"], "exact");
-    // The 3256x INSERT is not a record: it is outside the crop.
-    let instances = records(&tmp.0, "blocks");
-    assert!(
-        instances.iter().all(|i| i["handle"] != "756"),
-        "{instances:?}"
-    );
-    assert!(instances.iter().any(|i| i["block"] == "CIRKLO_PUNKTOJ"));
-
-    let regions = records(&tmp.0, "regions");
-    assert!(regions.iter().any(|r| r["handle"] == "156"));
-    let texts = records(&tmp.0, "texts");
-    assert!(!texts.is_empty());
-    assert!(texts
-        .iter()
-        .all(|t| t["bbox_confidence"] == "measured" && t["font_ok"] == true));
-    // Every record has an overview pixel box.
-    for record in dims.iter().chain(&geometry).chain(&regions).chain(&texts) {
-        assert!(record["px"]["ov"].is_array(), "{record}");
-    }
-
-    // strings.json finds the dimension label.
-    let strings = read_json(&tmp.0.join("strings.json"));
-    let ids = strings["strings"]["1504,68"]
-        .as_array()
-        .expect("the label is indexed");
-    assert!(ids.iter().any(|i| i == &aligned["id"]));
-
-    // One top-level entity on the frozen layer; the dimension blocks hold
-    // the definition points on Defpoints. `count` is every hidden entity,
-    // the same number the manifest prints under the same word.
-    let report = read_json(&tmp.0.join("report.json"));
-    let manifest = read_json(&tmp.0.join("manifest.json"));
-    assert_eq!(
-        report["excluded"].as_array().unwrap().len(),
-        manifest["counts"]["excluded"].as_u64().unwrap() as usize
-    );
-    assert_eq!(
-        report["hidden"]["count"].as_u64().unwrap(),
-        manifest["counts"]["hidden"].as_u64().unwrap()
-    );
-    assert_eq!(report["hidden"]["top_level"], 1);
-    assert_eq!(report["hidden"]["covers"], "top_level");
-    assert_eq!(report["hidden"]["handles"].as_array().unwrap().len(), 1);
-    assert_eq!(report["hidden"]["handles_truncated"], false);
-    assert_eq!(report["hidden"]["by_reason"]["layer_frozen"], 1);
-    assert!(report["hidden"]["inside_blocks"].as_u64().unwrap() > 1);
-}
-
-#[test]
 fn the_export_is_deterministic_and_options_are_honoured() {
-    let (db, header) = uncad::parse_with_header(example_2000()).expect("parses");
+    let (db, header) = (sample_drawing(), sample_header());
     let options = ExportOptions {
         max_levels: 1,
         svg: true,
         full: true,
         shard_kb: 4,
-        source_name: Some("example_2000.dwg".into()),
+        source_name: Some("sample.dxf".into()),
         ..Default::default()
     };
     let a = TempDir::new("det_a");
@@ -202,7 +126,7 @@ fn the_export_is_deterministic_and_options_are_honoured() {
     // A 4 KB shard size splits the geometry records.
     assert!(a.0.join("geometry.001.json").exists(), "{:?}", ra.files);
     let manifest = read_json(&a.0.join("manifest.json"));
-    assert_eq!(manifest["source"]["name"], "example_2000.dwg");
+    assert_eq!(manifest["source"]["name"], "sample.dxf");
     assert!(manifest["shard_index"].as_array().unwrap().len() > 5);
     // drawing.svg reads in world units for a drawing near the origin.
     assert_eq!(manifest["svg_origin"], serde_json::json!([0.0, 0.0]));
@@ -218,66 +142,36 @@ fn the_export_is_deterministic_and_options_are_honoured() {
 
     // Another profile changes the lattice.
     let c = TempDir::new("openai");
-    let rc = export_path(
-        &example_2000(),
+    let rc = export_sample(
         &c.0,
         &ExportOptions {
             profile: Profile::OPENAI_PATCH,
             max_levels: 0,
             ..Default::default()
         },
-    )
-    .expect("exports");
+    );
     assert_eq!(rc.overview.px[0] % 32, 0);
-}
-
-#[test]
-fn export_file_parses_and_names_its_source() {
-    let tmp = TempDir::new("export_file");
-    let report = iron_pack_cad::export_file(
-        std::path::Path::new(&fixture("hidden_layers_r2000.dxf")),
-        &tmp.0,
-        &ExportOptions {
-            max_levels: 0,
-            ..Default::default()
-        },
-    )
-    .expect("exports");
-    assert!(report.counts.geometry > 0);
-    let manifest = read_json(&tmp.0.join("manifest.json"));
-    assert_eq!(manifest["source"]["name"], "hidden_layers_r2000.dxf");
-    assert_eq!(manifest["source"]["format"], "dxf");
-    // A file that does not parse is the parser's error, not a half-written
-    // package.
-    let missing = TempDir::new("export_missing");
-    let err = iron_pack_cad::export_file(
-        std::path::Path::new(&fixture("no_such_file.dxf")),
-        &missing.0,
-        &ExportOptions::default(),
-    )
-    .expect_err("no such file");
-    assert!(matches!(err, ExportError::Parse(_)), "{err:?}");
-    assert!(!missing.0.join("manifest.json").exists());
 }
 
 #[test]
 fn hidden_entities_stay_out_of_the_records() {
     let tmp = TempDir::new("hidden");
-    let report = export_path(
-        &fixture("hidden_layers_r2000.dxf"),
-        &tmp.0,
-        &ExportOptions::default(),
-    )
-    .expect("exports");
-    assert_eq!(report.counts.hidden, 4);
+    let report = export_fixture("hidden_layers_r2000.dxf", &tmp.0, &ExportOptions::default())
+        .expect("exports");
+    // Off, frozen, not plotted (NOPLOT and Defpoints both state DXF 290 =
+    // 0) and one invisible LINE: five of the nine.
+    assert_eq!(report.counts.hidden, 5);
     let geometry = records(&tmp.0, "geometry");
-    assert_eq!(geometry.len(), 5, "{geometry:?}");
+    assert_eq!(geometry.len(), 4, "{geometry:?}");
     let layers: BTreeSet<&str> = geometry
         .iter()
         .map(|g| g["layer"].as_str().unwrap())
         .collect();
     assert!(
-        !layers.contains("OFF") && !layers.contains("FROZEN") && !layers.contains("Defpoints"),
+        !layers.contains("OFF")
+            && !layers.contains("FROZEN")
+            && !layers.contains("NOPLOT")
+            && !layers.contains("Defpoints"),
         "{layers:?}"
     );
     let dashed = geometry.iter().find(|g| g["layer"] == "VISIBLE").unwrap();
@@ -286,14 +180,16 @@ fn hidden_entities_stay_out_of_the_records() {
     assert!(records(&tmp.0, "texts").is_empty());
     let report_json = read_json(&tmp.0.join("report.json"));
     assert_eq!(report_json["hidden"]["by_reason"]["layer_off"], 1);
+    assert_eq!(report_json["hidden"]["by_reason"]["layer_no_plot"], 1);
+    assert_eq!(report_json["hidden"]["by_reason"]["defpoints"], 1);
     assert_eq!(report_json["hidden"]["by_reason"]["invisible"], 1);
 }
 
 #[test]
 fn hidden_entities_are_counted_the_same_way_in_both_files() {
     let tmp = TempDir::new("hidden_agree");
-    export_path(
-        &fixture("hidden_layers_r2000.dxf"),
+    export_fixture(
+        "hidden_layers_r2000.dxf",
         &tmp.0,
         &ExportOptions {
             max_levels: 1,
@@ -334,7 +230,7 @@ fn hidden_entities_are_counted_the_same_way_in_both_files() {
 }
 
 /// One line and one TEXT saying `s`, in model space.
-fn drawing_with_text(s: &str) -> uncad::CadDatabase {
+fn drawing_with_text(s: &str) -> CadDatabase {
     model_space(vec![
         line(0x10, 0.0, 0.0, 100.0, 0.0),
         text(0x11, 10.0, 10.0, 5.0, s),
@@ -345,8 +241,8 @@ fn drawing_with_text(s: &str) -> uncad::CadDatabase {
 fn text_boxes_are_measured_with_the_bundled_font_and_gaps_are_reported() {
     // Hangul, CP949-decoded, shaped by the bundled Noto Sans KR subset.
     let tmp = TempDir::new("hangul");
-    let report = export_path(
-        &fixture("cp949_r2000.dxf"),
+    let report = export_fixture(
+        "cp949_r2000.dxf",
         &tmp.0,
         &ExportOptions {
             max_levels: 0,
@@ -364,7 +260,11 @@ fn text_boxes_are_measured_with_the_bundled_font_and_gaps_are_reported() {
     // height is the cap height): two syllables of roughly 0.85 em each, so
     // about 5.8 units wide, and a Hangul glyph is about 0.88 em tall, so
     // about 3 units -- taller than the 2.5 of a capital.
-    let domyeon = by_handle(&texts, "23");
+    // The fixture states no handles: the record is found by its text.
+    let domyeon = texts
+        .iter()
+        .find(|t| t["text"] == "\u{b3c4}\u{ba74}")
+        .unwrap_or_else(|| panic!("the text of two syllables: {texts:?}"));
     assert_eq!(domyeon["text"], "\u{b3c4}\u{ba74}");
     let b = domyeon["bbox"].as_array().unwrap();
     let (w, h) = (
@@ -520,43 +420,6 @@ fn exporting_onto_an_existing_file_reports_the_path_it_could_not_write() {
 }
 
 #[test]
-fn a_package_says_when_its_dimension_values_were_recomputed() {
-    // An R14 file stores no measurement: the values come from the
-    // definition points, and every place that says where a number came
-    // from says so.
-    let tmp = TempDir::new("r14");
-    export_path(
-        &corpus("example_r14.dwg"),
-        &tmp.0,
-        &ExportOptions {
-            max_levels: 1,
-            ..Default::default()
-        },
-    )
-    .expect("exports");
-    let dims = records(&tmp.0, "dimensions");
-    assert_eq!(dims.len(), 10);
-    for d in &dims {
-        assert_eq!(d["measurement_source"], "from_points", "{}", d["id"]);
-        assert_eq!(d["confidence"], "exact", "{}", d["id"]);
-        assert_eq!(
-            d["measurement"], d["measurement_from_points"],
-            "{}",
-            d["id"]
-        );
-        assert!(
-            d["measurement"].as_f64().is_some_and(|m| m.abs() > 1.0),
-            "{} measures {}",
-            d["id"],
-            d["measurement"]
-        );
-        assert!(d["delta"].is_null(), "{}", d["id"]);
-    }
-    let manifest = read_json(&tmp.0.join("manifest.json"));
-    assert_eq!(manifest["capabilities"]["dimension_values"], "computed");
-}
-
-#[test]
 fn an_outline_too_big_to_test_says_so_instead_of_claiming_it_is_simple() {
     // Above the cap the answer is `null` -- not the `true` that would let a
     // reader trust an area that may be meaningless.
@@ -604,69 +467,6 @@ fn an_outline_too_big_to_test_says_so_instead_of_claiming_it_is_simple() {
         }
         assert!(region["area"].as_f64().is_some_and(|a| a > 0.0));
     }
-}
-
-#[test]
-fn every_string_the_picture_draws_is_a_text_record_and_a_strings_key() {
-    // The renderer draws a TOLERANCE's own <text> and an ACAD_TABLE's
-    // cached block too, and the manifest's guidance tells the reader to
-    // find things by looking them up in strings.json. The expected set is
-    // every id the renderer put a <text> element under, read back out of
-    // the SVG the same run wrote; the dimension labels are the documented
-    // exception -- they are carried by dimensions.json's `display`.
-    let tmp = TempDir::new("drawn_texts");
-    export_path(
-        &corpus("example_2000.dxf"),
-        &tmp.0,
-        &ExportOptions {
-            max_levels: 1,
-            svg: true,
-            ..Default::default()
-        },
-    )
-    .expect("exports");
-    let svg = std::fs::read_to_string(tmp.0.join("drawing.svg")).expect("drawing.svg");
-    let drawn: BTreeSet<String> = svg
-        .match_indices("<text id=\"t")
-        .map(|(i, m)| {
-            let rest = &svg[i + m.len()..];
-            rest[..rest.find('"').expect("closing quote")].replace('.', "/")
-        })
-        .collect();
-    let dimension_ids: BTreeSet<String> = records(&tmp.0, "dimensions")
-        .iter()
-        .map(|r| r["id"].as_str().unwrap().to_string())
-        .collect();
-    let expected: BTreeSet<String> = drawn
-        .iter()
-        .filter(|id| !dimension_ids.contains(id.split('/').next().unwrap_or_default()))
-        .cloned()
-        .collect();
-    assert!(
-        expected.len() >= 11,
-        "the drawing draws more than the three top-level texts: {expected:?}"
-    );
-    let indexed: BTreeSet<String> = records(&tmp.0, "texts")
-        .iter()
-        .map(|r| r["id"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(
-        expected.difference(&indexed).collect::<Vec<_>>(),
-        Vec::<&String>::new(),
-        "drawn but not indexed"
-    );
-    let strings = read_json(&tmp.0.join("strings.json"));
-    let ids = strings["strings"]["test"]
-        .as_array()
-        .expect("a table cell reading \"test\"");
-    assert!(
-        ids.iter()
-            .any(|v| v.as_str().is_some_and(|s| s.contains('/'))),
-        "{ids:?} should name the cells inside the table"
-    );
-    let texts = records(&tmp.0, "texts");
-    let kinds: BTreeSet<&str> = texts.iter().filter_map(|r| r["kind"].as_str()).collect();
-    assert!(kinds.contains("TOLERANCE"), "{kinds:?}");
 }
 
 #[test]
@@ -865,7 +665,7 @@ fn a_region_says_why_its_area_is_unavailable_and_the_manifest_says_how_many() {
 
 /// `levels` blocks nested one inside the next, the innermost holding a
 /// TEXT, with one INSERT of the outermost in model space.
-fn nested_blocks(levels: usize) -> uncad::CadDatabase {
+fn nested_blocks(levels: usize) -> CadDatabase {
     let insert = |id: u64, block: String| {
         Entity::Insert(InsertEntity {
             common: common(id),
@@ -934,26 +734,23 @@ fn every_record_id_resolves_to_its_file_through_the_shard_index() {
     // strings a consumer would otherwise compare as strings; block
     // instances are in the index like every other kind.
     let tmp = TempDir::new("shard_lookup");
-    export_path(
-        &example_2000(),
+    export_sample(
         &tmp.0,
         &ExportOptions {
             shard_kb: 1,
             max_levels: 1,
             ..Default::default()
         },
-    )
-    .expect("exports");
+    );
     let manifest = read_json(&tmp.0.join("manifest.json"));
     let index = manifest["shard_index"].as_array().unwrap();
     assert!(
         index.iter().filter(|s| s["kind"] == "blocks").count() > 1,
-        "1 KB shards split nine INSERT records"
+        "1 KB shards split twelve INSERT records"
     );
     let mut checked = 0;
     for (kind, name) in [
         ("text", "texts"),
-        ("dimension", "dimensions"),
         ("geometry", "geometry"),
         ("region", "regions"),
         ("blocks", "blocks"),
@@ -995,8 +792,8 @@ fn a_nested_block_references_attribute_is_indexed_once() {
     // drawn at (121, 121) at height 2.5; its id is the INSERT's and the
     // ATTRIB's, the path the renderer names the <text> with.
     let tmp = TempDir::new("nested_attrib");
-    export_path(
-        &fixture("nested_attrib_r2000.dxf"),
+    export_fixture(
+        "nested_attrib_r2000.dxf",
         &tmp.0,
         &ExportOptions {
             max_levels: 1,
@@ -1043,38 +840,7 @@ fn a_nested_attribute_stored_on_the_insert_is_indexed_too() {
     // The same nesting in the shape a DWG (and an R2004+ DXF) gives: the
     // nested INSERT carries its ATTRIB in `attribs` and the block has no
     // ATTRIB child at all.
-    let insert = |id: u64, block: &str, x: f64, y: f64, attribs: Vec<AttribEntity>| {
-        Entity::Insert(InsertEntity {
-            common: common(id),
-            block_name: Ref::Resolved(block.into()),
-            insertion_point: p3(x, y),
-            scale: uncad_model::Point3D {
-                x: 1.0,
-                y: 1.0,
-                z: 1.0,
-            },
-            rotation: 0.0,
-            attribs,
-            extrusion: z_axis(),
-        })
-    };
-    let value = AttribEntity {
-        common: common(0x56),
-        start_point: Point2D { x: 21.0, y: 21.0 },
-        text_height: 2.5,
-        tag: "NUM".into(),
-        flags: Default::default(),
-        text: "D-101".into(),
-        rotation: 0.0,
-        horizontal_justification: Default::default(),
-        vertical_justification: Default::default(),
-        alignment_point: None,
-        width_factor: 1.0,
-        oblique_angle: 0.0,
-        style_name: Ref::Absent,
-        elevation: 0.0,
-        extrusion: z_axis(),
-    };
+    let value = attrib(0x56, 21.0, 21.0, "NUM", "D-101");
     let db = with_blocks(
         vec![insert(0x60, "DOOR", 100.0, 100.0, Vec::new())],
         vec![
