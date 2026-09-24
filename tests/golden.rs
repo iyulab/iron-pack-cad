@@ -135,6 +135,15 @@ fn every_g5_dimension_carries_what_the_case_states() {
         arc["delta"].as_f64().is_some_and(|d| d.abs() > 1.0),
         "{arc}"
     );
+    // Its style puts the arc symbol above the text; that is reported as the
+    // style's fact, and the label itself does not carry the symbol.
+    assert_eq!(arc["arc_symbol"], "ABOVE_TEXT", "{arc}");
+    assert!(!arc["display"].as_str().unwrap_or("").contains('\u{2312}'));
+    // Only an arc-length dimension carries the field.
+    assert!(records
+        .iter()
+        .filter(|r| r["kind"] != "ARC_LENGTH")
+        .all(|r| r.get("arc_symbol").is_none()));
 }
 
 #[test]

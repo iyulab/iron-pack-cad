@@ -1311,12 +1311,11 @@ fn dimension_records(
             (Some(m), Some(p)) => Some(rounder.derived(m - p)),
             _ => None,
         };
-        let style = EffectiveStyle::resolve(
-            d.style_name
-                .resolved()
-                .and_then(|name| db.tables.dim_styles.get(name)),
-            defaults,
-        );
+        let style_record = d
+            .style_name
+            .resolved()
+            .and_then(|name| db.tables.dim_styles.get(name));
+        let style = EffectiveStyle::resolve(style_record, defaults);
         let shown_text = display_text(
             d,
             &style,
@@ -1370,6 +1369,12 @@ fn dimension_records(
             v.insert(
                 "rotation_deg".into(),
                 json!(rounder.derived(d.rotation.to_degrees())),
+            );
+        }
+        if d.kind == Some(uncad_model::model::DimensionKind::ArcLength) {
+            v.insert(
+                "arc_symbol".into(),
+                serde_json::to_value(crate::dimension::arc_symbol(style_record))?,
             );
         }
         if let Some(axis) = d.ordinate_axis {
@@ -1961,6 +1966,7 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
         "dimension_values": "a dimension carries two values, as facts: `measurement_stored`, what the file stores (act_measurement; degrees for an angle), and `measurement_from_points`, what its definition points give; `delta` is stored minus from_points when both exist. They can disagree -- a file may carry a stale or foreign value -- and neither is chosen over the other here; a dimension carries no `confidence`",
         "display_source": ["user_text", "cached_block", "formatted", "suppressed", "none"],
         "display_value_from": "when the label holds a number this package formatted (`formatted`, or `user_text` with `<>`), `points` or `stored` says which of the two values it is: the points' value, as a CAD application draws it, and the stored one only when the points give none",
+        "arc_symbol": "an arc-length dimension carries its style's `DIMARCSYM` as `BEFORE_TEXT`, `ABOVE_TEXT` or `SUPPRESSED`, or null when the style does not state it; the symbol is drawn as geometry beside the label, never part of `display`",
         "region_labels": "`labels` holds the ids of the text records whose anchor falls inside the region",
         "px_boxes": "`px` maps an image id to [x0, y0, x1, y1] in that image's pixels, y down, clipped to the image; the record's full extent is its world `bbox`, and the rest of it is on the other images it lists",
         "tile_sidecar": "`records` holds positional rows described by the sidecar's own `columns`; `counts` is the true number of records of each kind on the tile, which `records_truncated` does not affect, and `geometry_by_kind` summarises the geometry whether or not its rows fit",

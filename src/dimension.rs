@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use uncad_model::model::{
     DimensionEntity, DimensionKind, Entity, OrdinateAxis, Point3D, TextOverride, ToleranceEntity,
 };
-use uncad_model::tables::{BlockRecord, DimStyleRecord, LinearUnitFormat};
+use uncad_model::tables::{ArcSymbol, BlockRecord, DimStyleRecord, LinearUnitFormat};
 use uncad_model::Tables;
 
 use crate::text::decode_mtext;
@@ -190,6 +190,19 @@ impl EffectiveStyle {
             dimpost,
         }
     }
+}
+
+/// Where an arc-length dimension's arc symbol goes, as its DIMSTYLE states
+/// it (`DIMARCSYM`); `None` when the style is missing, is only a husk (see
+/// `carries_a_body`), or does not state the variable -- a DWG before R2007
+/// has none, and no default is put in its place.
+///
+/// The symbol is a fact about the style, not part of the label: a CAD
+/// application draws it as geometry in the dimension's block, beside the
+/// text, so the cached label never contains it, and a label this crate
+/// formats does not add it either -- the two would otherwise disagree.
+pub fn arc_symbol(style: Option<&DimStyleRecord>) -> Option<ArcSymbol> {
+    style.filter(|s| carries_a_body(s))?.arc_symbol
 }
 
 /// Whether a dimension of this kind measures an angle.
@@ -923,6 +936,32 @@ mod tests {
             arrow_size: Some(2.5),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_arc_symbol_is_the_style_s_own_and_never_a_default() {
+        let above = DimStyleRecord {
+            arc_symbol: Some(ArcSymbol::AboveText),
+            ..metric()
+        };
+        assert_eq!(arc_symbol(Some(&above)), Some(ArcSymbol::AboveText));
+        let off = DimStyleRecord {
+            arc_symbol: Some(ArcSymbol::Suppressed),
+            ..metric()
+        };
+        assert_eq!(arc_symbol(Some(&off)), Some(ArcSymbol::Suppressed));
+        // A style that does not state it (a DWG before R2007) and a missing
+        // style say nothing; "before the text" is not put in their place.
+        assert_eq!(arc_symbol(Some(&metric())), None);
+        assert_eq!(arc_symbol(None), None);
+        // A husk says nothing either, whatever its zeroed fields read as.
+        let husk = DimStyleRecord {
+            text_height: Some(0.0),
+            arrow_size: Some(0.0),
+            arc_symbol: Some(ArcSymbol::BeforeText),
+            ..Default::default()
+        };
+        assert_eq!(arc_symbol(Some(&husk)), None);
     }
 
     #[test]
