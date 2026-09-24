@@ -1,61 +1,53 @@
-//! The package's polyline arithmetic against a real file: the corpus's
-//! `example_2000.dwg` has a revision cloud -- an LWPOLYLINE whose every
-//! segment is a 110-degree arc -- whose length and area are checked here
-//! against a computation that does not go through this crate.
+//! The package's polyline arithmetic against a revision cloud -- a closed
+//! LWPOLYLINE whose every segment is a 110-degree arc, over chords of
+//! differing lengths -- whose length and area are checked here against a
+//! computation that does not go through this crate.
 
 use iron_pack_cad::geom;
-use uncad::Entity;
-use uncad_model::model::{LwPolylineEntity, PolylineVertex};
+use uncad_model::model::PolylineVertex;
+use uncad_model::Point2D;
 
-const EXAMPLE_2000_DWG: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../lib/libredwg/test/test-data/example_2000.dwg"
-);
-
-/// The small revision cloud in model space (the other one has 3635
-/// vertices), by the handle the file gives it.
-const REVCLOUD: &str = "156";
-
-fn lwpolyline<'a>(db: &'a uncad::CadDatabase, handle: &str) -> &'a LwPolylineEntity {
-    db.entities
-        .iter()
-        .find_map(|e| match e {
-            Entity::LwPolyline(p)
-                if p.common.source_handle.resolved().map(String::as_str) == Some(handle) =>
-            {
-                Some(p)
+/// Twenty-five vertices on an ellipse, unevenly spaced, counter-clockwise,
+/// each segment bulging outward as a 110-degree arc.
+fn revision_cloud() -> Vec<PolylineVertex> {
+    let n = 25;
+    let bulge = (110f64.to_radians() / 4.0).tan();
+    (0..n)
+        .map(|i| {
+            let t = std::f64::consts::TAU * i as f64 / n as f64 + 0.08 * (i as f64).sin();
+            PolylineVertex {
+                bulge,
+                ..PolylineVertex::straight(Point2D {
+                    x: 60.0 * t.cos(),
+                    y: 35.0 * t.sin(),
+                })
             }
-            _ => None,
         })
-        .unwrap_or_else(|| panic!("LWPOLYLINE {handle} is in the drawing"))
+        .collect()
 }
 
 #[test]
 fn the_revision_clouds_length_is_the_sum_of_its_arcs() {
-    let db = uncad::parse(EXAMPLE_2000_DWG).expect("corpus file must parse");
-    let cloud = lwpolyline(&db, REVCLOUD);
-    assert_eq!(cloud.vertices.len(), 25);
-    assert!(cloud.closed);
+    let cloud = revision_cloud();
     // Independently: chord c and bulge b give r = c (1 + b^2) / (4 |b|) and
     // the arc length r * |4 atan b|, summed over the 25 closing segments.
-    let n = cloud.vertices.len();
+    let n = cloud.len();
     let mut expected = 0.0;
     for i in 0..n {
-        let (a, b) = (cloud.vertices[i].point, cloud.vertices[(i + 1) % n].point);
+        let (a, b) = (cloud[i].point, cloud[(i + 1) % n].point);
         let chord = (b.x - a.x).hypot(b.y - a.y);
-        let bulge = cloud.vertices[i].bulge.abs();
+        let bulge = cloud[i].bulge.abs();
         let radius = chord * (1.0 + bulge * bulge) / (4.0 * bulge);
         expected += radius * 4.0 * bulge.atan();
     }
-    let length = geom::polyline_length(&cloud.vertices, true);
+    let length = geom::polyline_length(&cloud, true);
     assert!(
-        (length - expected).abs() < 1e-6 * expected,
+        (length - expected).abs() < 1e-9 * expected,
         "{length} vs {expected}"
     );
     // Every segment is a 110-degree arc, so the ratio of arc length to
     // chord is the same for all of them: theta / (2 sin(theta / 2)).
     let chords: Vec<PolylineVertex> = cloud
-        .vertices
         .iter()
         .map(|v| PolylineVertex::straight(v.point))
         .collect();
@@ -66,8 +58,22 @@ fn the_revision_clouds_length_is_the_sum_of_its_arcs() {
         (length / chord_length - ratio).abs() < 1e-9,
         "{length} / {chord_length} vs {ratio}"
     );
-    // A cloud bulging outward encloses more than its vertex polygon.
-    let area = geom::polyline_area(&cloud.vertices, true).expect("closed outline");
+    // A cloud bulging outward encloses its vertex polygon and, on every
+    // chord, the circular segment the arc cuts off: r^2 (theta - sin theta)
+    // / 2.
+    let area = geom::polyline_area(&cloud, true).expect("closed outline");
     let polygon = geom::polyline_area(&chords, true).expect("closed outline");
+    let segments: f64 = (0..n)
+        .map(|i| {
+            let (a, b) = (cloud[i].point, cloud[(i + 1) % n].point);
+            let chord = (b.x - a.x).hypot(b.y - a.y);
+            let radius = chord / (2.0 * (theta / 2.0).sin());
+            radius * radius * (theta - theta.sin()) / 2.0
+        })
+        .sum();
     assert!(area > polygon, "{area} vs polygon {polygon}");
+    assert!(
+        (area - (polygon + segments)).abs() < 1e-9 * area,
+        "{area} vs {polygon} + {segments}"
+    );
 }
