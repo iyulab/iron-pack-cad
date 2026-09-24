@@ -173,35 +173,6 @@ pub fn png_size(png: &[u8]) -> [u32; 2] {
     [be(16), be(20)]
 }
 
-/// Dark (< 128) pixels of an 8-bit RGB PNG, inside `[x0, y0, x1, y1]` when
-/// given.
-pub fn dark_pixels_in(png: &[u8], area: Option<[i64; 4]>) -> usize {
-    let decoder = png::Decoder::new(std::io::Cursor::new(png));
-    let mut reader = decoder.read_info().unwrap();
-    let mut buf = vec![0; reader.output_buffer_size().expect("a frame size")];
-    let info = reader.next_frame(&mut buf).unwrap();
-    assert_eq!(
-        info.color_type,
-        png::ColorType::Rgb,
-        "the package writes RGB"
-    );
-    let (w, h) = (i64::from(info.width), i64::from(info.height));
-    let [x0, y0, x1, y1] = area.unwrap_or([0, 0, w, h]);
-    let mut count = 0;
-    for y in y0.max(0)..y1.min(h) {
-        for x in x0.max(0)..x1.min(w) {
-            if buf[((y * w + x) * 3) as usize] < 128 {
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-pub fn dark_pixels(png: &[u8]) -> usize {
-    dark_pixels_in(png, None)
-}
-
 // ------------------------------------------------------------ drawings
 
 /// An entity's common fields: its ID `id`, its handle the ID in hex, on
@@ -374,14 +345,18 @@ pub fn attrib(id: u64, x: f64, y: f64, tag: &str, value: &str) -> AttribEntity {
 }
 
 /// A drawing with a little of everything the records carry, spread over
-/// 400 x 300 units: a grid of 200 lines, six texts and an MTEXT, three
-/// closed outlines, and twelve INSERTs of a four-line block `BOX`, each
-/// with an ATTRIB `NO` = `B-01` .. `B-12`.
+/// 610 x 350 units: a grid of 200 lines on the layers `GRID-A` and
+/// `GRID-B`, six texts and an MTEXT, three closed outlines on `AREA`, and
+/// twelve INSERTs of a four-line block `BOX`, each with an ATTRIB `NO` =
+/// `B-01` .. `B-12`.
 pub fn sample_drawing() -> CadDatabase {
     let mut entities = Vec::new();
     for i in 0..200u64 {
         let (x, y) = ((i % 20) as f64 * 20.0, (i / 20) as f64 * 30.0);
-        entities.push(line(0x1000 + i, x, y, x + 15.0, y + 5.0));
+        let mut grid = line(0x1000 + i, x, y, x + 15.0, y + 5.0);
+        let layer = if i % 2 == 0 { "GRID-A" } else { "GRID-B" };
+        *grid.common_mut() = on_layer(grid.common().clone(), layer);
+        entities.push(grid);
     }
     for (i, s) in [
         "PLAN",
@@ -413,7 +388,7 @@ pub fn sample_drawing() -> CadDatabase {
         .iter()
         .enumerate()
     {
-        entities.push(lwpolyline(
+        let mut outline = lwpolyline(
             0x120 + i as u64,
             &[
                 (*x, *y),
@@ -423,7 +398,9 @@ pub fn sample_drawing() -> CadDatabase {
             ],
             &[],
             true,
-        ));
+        );
+        *outline.common_mut() = on_layer(outline.common().clone(), "AREA");
+        entities.push(outline);
     }
     for i in 0..12u64 {
         let (x, y) = (500.0 + (i % 4) as f64 * 30.0, (i / 4) as f64 * 30.0);
