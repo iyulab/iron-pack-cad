@@ -14,7 +14,7 @@ use std::path::Path;
 
 use common::*;
 use serde_json::Value;
-use uncad_export::{ExportOptions, SheetReport};
+use iron_pack_cad::{ExportOptions, SheetReport};
 use uncad_model::model::{Entity, PointEntity};
 use uncad_model::tables::{BlockRecord, LayoutRecord, PlotSettings};
 use uncad_model::{Point2D, Ref};
@@ -609,7 +609,7 @@ fn an_infinite_line_in_model_space_is_drawn_inside_the_viewport_and_nowhere_else
     let ink = |db: &uncad::CadDatabase, header: &uncad::Header, name: &str| -> (usize, usize) {
         let tmp = TempDir::new(name);
         let report =
-            uncad_export::export_package(db, Some(header), &tmp.0, &one_level()).expect("exports");
+            iron_pack_cad::export_package(db, Some(header), &tmp.0, &one_level()).expect("exports");
         let sheet = Sheet::read(&tmp.0, report.sheets.first().expect("one sheet"), 128);
         // The viewport's frame is 200 x 120 paper units about (150, 100);
         // its border, and the model line that starts exactly on it, live in

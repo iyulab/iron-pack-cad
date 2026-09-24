@@ -134,13 +134,13 @@ impl Writer<'_> {
     }
 }
 
-/// Removes what a previous uncad package in `dir` left behind, so a second
+/// Removes what a previous iron-pack-cad package in `dir` left behind, so a second
 /// export with other options does not leave stale shards, tile PNGs and
 /// sidecars beside the new ones: they look valid (same schema, same record
 /// ids) and a consumer that walks the tree would mix two exports.
 ///
 /// Only the files the previous `manifest.json` lists are removed, and only
-/// when it is an uncad manifest: a directory holding anything else is left
+/// when it is an iron-pack-cad manifest: a directory holding anything else is left
 /// alone, and a listed path that is not a plain relative path inside `dir`
 /// is ignored. Directories under `frames/` and `sheets/` go when they are
 /// left empty. Every failure is ignored -- the write that follows reports
@@ -155,7 +155,7 @@ pub(crate) fn clear_previous_package(dir: &Path) {
     let ours = manifest
         .get("$schema")
         .and_then(Value::as_str)
-        .is_some_and(|s| s.starts_with("uncad-package/"));
+        .is_some_and(|s| s.starts_with("iron-pack-cad/"));
     if !ours {
         return;
     }

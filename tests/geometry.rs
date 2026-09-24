@@ -4,7 +4,7 @@
 //! against a computation that does not go through this crate.
 
 use uncad::Entity;
-use uncad_export::geom;
+use iron_pack_cad::geom;
 use uncad_model::model::{LwPolylineEntity, PolylineVertex};
 
 const EXAMPLE_2000_DWG: &str = concat!(

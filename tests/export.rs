@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use common::*;
 use serde_json::Value;
-use uncad_export::{ExportError, ExportOptions, Profile};
+use iron_pack_cad::{ExportError, ExportOptions, Profile};
 use uncad_model::model::{
     AttribEntity, Entity, InsertEntity, LwPolylineEntity, Point2D, PolylineVertex, Ref,
 };
@@ -60,7 +60,7 @@ fn the_package_has_every_file_and_a_profile_sized_overview() {
     assert!(dark_pixels(&png) > 1000, "the overview shows the drawing");
 
     let manifest = read_json(&tmp.0.join("manifest.json"));
-    assert_eq!(manifest["$schema"], "uncad-package/1");
+    assert_eq!(manifest["$schema"], "iron-pack-cad/1");
     assert_eq!(manifest["profile"], "claude");
     assert_eq!(manifest["source"]["name"], Value::Null);
     assert_eq!(manifest["source"]["format"], "dwg");
@@ -196,8 +196,8 @@ fn the_export_is_deterministic_and_options_are_honoured() {
     };
     let a = TempDir::new("det_a");
     let b = TempDir::new("det_b");
-    let ra = uncad_export::export_package(&db, Some(&header), &a.0, &options).expect("exports");
-    let rb = uncad_export::export_package(&db, Some(&header), &b.0, &options).expect("exports");
+    let ra = iron_pack_cad::export_package(&db, Some(&header), &a.0, &options).expect("exports");
+    let rb = iron_pack_cad::export_package(&db, Some(&header), &b.0, &options).expect("exports");
     assert!(a.0.join("drawing.svg").exists() && a.0.join("entities.json").exists());
     // A 4 KB shard size splits the geometry records.
     assert!(a.0.join("geometry.001.json").exists(), "{:?}", ra.files);
@@ -234,7 +234,7 @@ fn the_export_is_deterministic_and_options_are_honoured() {
 #[test]
 fn export_file_parses_and_names_its_source() {
     let tmp = TempDir::new("export_file");
-    let report = uncad_export::export_file(
+    let report = iron_pack_cad::export_file(
         std::path::Path::new(&fixture("hidden_layers_r2000.dxf")),
         &tmp.0,
         &ExportOptions {
@@ -250,7 +250,7 @@ fn export_file_parses_and_names_its_source() {
     // A file that does not parse is the parser's error, not a half-written
     // package.
     let missing = TempDir::new("export_missing");
-    let err = uncad_export::export_file(
+    let err = iron_pack_cad::export_file(
         std::path::Path::new(&fixture("no_such_file.dxf")),
         &missing.0,
         &ExportOptions::default(),

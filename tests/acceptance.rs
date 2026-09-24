@@ -10,7 +10,7 @@ use std::path::Path;
 
 use common::*;
 use serde_json::Value;
-use uncad_export::ExportOptions;
+use iron_pack_cad::ExportOptions;
 
 /// The records of a kind, following the manifest's shard index the way an
 /// agent would.

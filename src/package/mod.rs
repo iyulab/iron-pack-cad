@@ -39,7 +39,7 @@ use records::{
 pub use sheets::{SheetReport, SheetViewport};
 
 /// The `$schema` value every JSON file in the package carries.
-pub const SCHEMA: &str = "uncad-package/1";
+pub const SCHEMA: &str = "iron-pack-cad/1";
 
 /// The stroke width of every image, in pixels.
 const STROKE_PX: f64 = 1.25;
@@ -628,7 +628,7 @@ pub fn export_file(
 /// variables a style falls back on; without one the package says its units
 /// are drawing units (`du`) and uses the format's defaults.
 ///
-/// A previous uncad package in `dir` is cleared first -- every file its
+/// A previous iron-pack-cad package in `dir` is cleared first -- every file its
 /// `manifest.json` listed, and the directories under `frames/` and
 /// `sheets/` that empties -- so a re-export with other options leaves no
 /// stale shards or tiles behind; nothing a manifest did not list is
@@ -2013,7 +2013,7 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
     });
     json!({
         "$schema": SCHEMA,
-        "generator": { "name": "uncad-export", "version": env!("CARGO_PKG_VERSION") },
+        "generator": { "name": "iron-pack-cad", "version": env!("CARGO_PKG_VERSION") },
         "profile": profile.name,
         "source": {
             "name": m.options.source_name,
@@ -2044,7 +2044,7 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
 
 fn readme(options: &ExportOptions) -> String {
     format!(
-        "uncad package ({SCHEMA})\n\nReading order:\n  1. manifest.json   what is here, the crop, the images and their affines; `legend` explains the record vocabularies, `guidance` how to look something up\n  2. strings.json    find a text or a number, get record ids; shard_index turns an id into a file (compare int(id.split('/')[0]) against first_key/last_key, not the strings)\n  3. texts.json / dimensions.json / geometry.json / regions.json / blocks.json   the records (sharded above {} KB, see shard_index); blocks.json holds the INSERT instances, drawing.json the block definitions\n  4. overview.png    the whole drawing; frames/f*/overview.png and frames/f*/tiles/z*/  zoomed tiles with .json sidecars; tiles.json lists every tile, written or empty with a reason, with its size and sha256\n  5. sheets.json     paper layouts: sheet size, viewports with their scale and model window, and how a model point maps onto the sheet; sheets/<layout>/overview.png. The title and title block are paper-space texts in texts.json (`space: \"paper\"`, with a `sheet` and that sheet's pixel box)\n  6. report.json     what was left out and why\n\nAll other records are model space. drawing.json holds the header, units, layer states and block definitions; entities.json and drawing.svg (when present) are tool inputs, not for reading.\n",
+        "iron-pack-cad package ({SCHEMA})\n\nReading order:\n  1. manifest.json   what is here, the crop, the images and their affines; `legend` explains the record vocabularies, `guidance` how to look something up\n  2. strings.json    find a text or a number, get record ids; shard_index turns an id into a file (compare int(id.split('/')[0]) against first_key/last_key, not the strings)\n  3. texts.json / dimensions.json / geometry.json / regions.json / blocks.json   the records (sharded above {} KB, see shard_index); blocks.json holds the INSERT instances, drawing.json the block definitions\n  4. overview.png    the whole drawing; frames/f*/overview.png and frames/f*/tiles/z*/  zoomed tiles with .json sidecars; tiles.json lists every tile, written or empty with a reason, with its size and sha256\n  5. sheets.json     paper layouts: sheet size, viewports with their scale and model window, and how a model point maps onto the sheet; sheets/<layout>/overview.png. The title and title block are paper-space texts in texts.json (`space: \"paper\"`, with a `sheet` and that sheet's pixel box)\n  6. report.json     what was left out and why\n\nAll other records are model space. drawing.json holds the header, units, layer states and block definitions; entities.json and drawing.svg (when present) are tool inputs, not for reading.\n",
         options.shard_kb
     )
 }

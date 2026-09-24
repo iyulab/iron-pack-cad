@@ -3,12 +3,12 @@
 `UncadSans-Regular.otf` (370 KB) is a subset of **Noto Sans KR Regular
 v2.004** (Adobe / Google, SIL Open Font License 1.1 -- `OFL-NotoSansKR.txt`
 is the licence with its copyright notice). It is what the package's images
-and its text measurements are drawn with (`uncad_export::fonts::bundled()`,
+and its text measurements are drawn with (`iron_pack_cad::fonts::bundled()`,
 the default `ExportOptions::fonts`), so a drawing renders the same on every
 machine and a Hangul label never depends on the host's fonts. The renderer
 this crate draws with, `iron-render-cad`, bundles no font of its own: the
 bytes are handed to it as `Fonts::Custom`, with the face's capital height
-(`uncad_export::fonts::UNCAD_SANS_CAP_HEIGHT`, OS/2 `sCapHeight` 733 over
+(`iron_pack_cad::fonts::UNCAD_SANS_CAP_HEIGHT`, OS/2 `sCapHeight` 733 over
 `unitsPerEm` 1000) as `ToSvgOptions::cap_height`.
 
 Coverage (2755 glyphs): Basic Latin, Latin-1 Supplement, the part of Latin
@@ -65,11 +65,10 @@ rename script changes the family, full and PostScript names and appends
 
 ## Licence
 
-The font is OFL 1.1 (not GPL like the rest of this repository), which is
-why this crate's licence expression is `GPL-3.0-or-later AND OFL-1.1`.
-Bundling it in GPL software is permitted by the OFL; it may not be sold by
-itself, and the licence text must travel with it -- `cargo package`
-includes this directory, and every binary linking `uncad-export` embeds the
-font bytes. cargo-deny does not see a font, so the repository's
-`docs/THIRD_PARTY_NOTICES.md` names it, and `uncad-cli`'s
-`tests/release_invariants.rs` checks that the licence text is beside it.
+The font is OFL 1.1 (not MIT like the code of this crate), which is why
+this crate's licence expression is `MIT AND OFL-1.1`. Bundling it in
+software is permitted by the OFL; it may not be sold by itself, and the
+licence text must travel with it -- `cargo package` includes this
+directory, and every binary linking `iron-pack-cad` embeds the font bytes.
+cargo-deny does not see a font; it sees the expression, which is why
+`deny.toml` allows `OFL-1.1` on a line of its own.

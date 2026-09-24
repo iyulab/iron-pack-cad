@@ -7,7 +7,7 @@
 //! (ground truth in crates/uncad/tests/fixtures/README.md).
 
 use uncad::Entity;
-use uncad_export::dimension::{
+use iron_pack_cad::dimension::{
     cached_labels, display_text, is_angular, measurement_from_points, usable_stored_measurement,
     DimDefaults, DisplaySource, EffectiveStyle,
 };
@@ -190,6 +190,6 @@ fn the_fixture_dimension_reads_its_style_and_its_cached_label() {
         &DimDefaults::from_header(&header),
     );
     assert_eq!(style.dimlfac, 12.0);
-    let formatted = uncad_export::dimension::format_measurement(10.0, false, &style);
+    let formatted = iron_pack_cad::dimension::format_measurement(10.0, false, &style);
     assert!(formatted.starts_with("120"), "{formatted}");
 }

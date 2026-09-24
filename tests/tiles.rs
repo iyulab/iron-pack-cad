@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use common::*;
 use serde_json::Value;
-use uncad_export::{ExportOptions, Profile};
+use iron_pack_cad::{ExportOptions, Profile};
 use uncad_model::model::Entity;
 
 fn example_2000() -> String {
@@ -626,7 +626,7 @@ fn the_guidance_quotes_the_profile_in_use() {
         Profile::OPENAI_PATCH,
     ] {
         let tmp = TempDir::new(&format!("guidance_{}", profile.name));
-        let report = uncad_export::export_package(
+        let report = iron_pack_cad::export_package(
             &db,
             Some(&header),
             &tmp.0,
@@ -732,7 +732,7 @@ fn re_exporting_clears_the_previous_package_but_nothing_else() {
     .expect("exports a third time");
     assert!(!tmp.0.join("frames/f0/tiles/z2").exists(), "now empty");
 
-    // A directory that is not an uncad package is never touched.
+    // A directory that is not an iron-pack-cad package is never touched.
     let foreign = TempDir::new("foreign");
     std::fs::create_dir_all(&foreign.0).unwrap();
     std::fs::write(foreign.0.join("manifest.json"), br#"{"schema":"other"}"#).unwrap();

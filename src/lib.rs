@@ -44,7 +44,7 @@
 //!   drawing.svg       with `svg: true`;  entities.json  with `full: true`
 //! ```
 //!
-//! Every JSON file carries `"$schema": "uncad-package/1"` and a `units`
+//! Every JSON file carries `"$schema": "iron-pack-cad/1"` and a `units`
 //! block; record files above `shard_kb` are split into `name.NNN.json` and
 //! listed in the manifest's `shard_index`. The package is the same bytes for
 //! the same input and options, `report.json` included. Re-exporting into a
@@ -72,8 +72,7 @@
 //!
 //! # Licence
 //!
-//! GPL-3.0-or-later, like the rest of the workspace, and OFL-1.1 for the
-//! bundled font (`fonts/OFL-NotoSansKR.txt`).
+//! MIT, and OFL-1.1 for the bundled font (`fonts/OFL-NotoSansKR.txt`).
 
 pub mod dimension;
 pub mod fonts;

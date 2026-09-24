@@ -1,30 +1,37 @@
 [package]
-name = "uncad-export"
+name = "iron-pack-cad"
 version = "0.1.0"
-edition.workspace = true
-rust-version.workspace = true
-# The crate is GPL like the rest of this workspace (it links `uncad`, and so
-# LibreDWG); the font it bundles is data under the SIL Open Font License.
-# cargo-deny reads this expression as one license decision per crate --
-# see deny.toml -- and never looks at the font file itself, so the OFL is
-# stated here and in docs/THIRD_PARTY_NOTICES.md.
-license = "GPL-3.0-or-later AND OFL-1.1"
-repository.workspace = true
-homepage.workspace = true
+edition = "2021"
+# Minimum supported Rust version. Measured, not guessed, and checked by CI's
+# `msrv` job with exactly this toolchain -- raise the two together.
+rust-version = "1.88"
+# The code is MIT; the font it bundles is data under the SIL Open Font
+# License. cargo-deny reads this expression as one license decision per
+# crate -- see deny.toml -- and never looks at the font file itself, so the
+# OFL is stated here and in fonts/README.md.
+license = "MIT AND OFL-1.1"
+repository = "https://github.com/iyulab/iron-pack-cad"
+homepage = "https://github.com/iyulab/iron-pack-cad"
 readme = "README.md"
-description = "An LLM/VLM-readable package of a DWG/DXF drawing: sized images, a tile pyramid, sheets per paper layout and exact JSON records, built on uncad and iron-render-cad."
-keywords = ["cad", "dwg", "dxf", "llm", "vision"]
+description = "A CAD drawing as a package an LLM or a vision model can read: sized images, a tile pyramid, sheets per paper layout and exact JSON records, from the uncad-model entity model."
+keywords = ["cad", "dxf", "llm", "vision", "package"]
 categories = ["graphics", "multimedia::images"]
 
-[lints]
-workspace = true
+[lints.rust]
+# Plain data in, files out: there is no reason for `unsafe` here.
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Same input, same bytes: nothing this crate outputs may depend on a hash
+# collection's iteration order, which `std` randomizes per instance. The main
+# guard is clippy.toml's `disallowed-types`; this restriction lint additionally
+# covers `for` loops over any other hash-based type.
+iter_over_hash_type = "warn"
 
 [dependencies]
-# The parser, and the drawing's header (units, extents, the dimension
-# variables), which the model does not carry.
-uncad = { path = "../uncad", version = "0.2.0" }
-# The model and the renderer. Version dependencies, never paths: this crate
-# must build from a standalone checkout.
+# The model the package is written from, and the renderer that draws it.
+# Version dependencies, never paths: this crate must build from a standalone
+# checkout.
 uncad-model = "0.1.0"
 iron-render-cad = "0.1.0"
 serde = { version = "1.0.229", features = ["derive"] }

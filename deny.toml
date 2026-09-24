@@ -1,0 +1,40 @@
+# cargo-deny -- license gate for the Rust dependency graph.
+#
+# This crate is MIT and is meant to be linked by any consumer of the model,
+# permissive and copyleft alike. What must NOT happen is a copyleft component
+# arriving through a dependency (the renderer's resvg tree is the one to
+# watch).
+#
+# Run locally: cargo deny check licenses sources
+
+[licenses]
+include-dev = true
+# Permissive only, plus the one data license this crate itself declares.
+# A new license appearing here is a decision, not a line to append when a
+# build fails.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+    "0BSD",
+    # The bundled font (fonts/UncadSans-Regular.otf) -- this crate's own
+    # license expression names it. OFL-1.1 governs the font file only; it
+    # places nothing on the code that embeds it.
+    "OFL-1.1",
+]
+# Deliberately absent: MPL-2.0, EPL, CDDL and the LGPLs. They are weak
+# copyleft, not permissive.
+
+[bans]
+multiple-versions = "warn"
+
+[advisories]
+
+[sources]
+# crates.io only. A git or alternate-registry dependency would bypass the
+# license review above, since its license field is whatever the source says.
+unknown-registry = "deny"
+unknown-git = "deny"
