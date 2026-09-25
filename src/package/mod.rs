@@ -896,7 +896,7 @@ pub fn export_package(
     );
     let geo_records: Vec<Record> = geo_records.into_iter().map(&with_images).collect();
     let region_records: Vec<Record> = region_records.into_iter().map(&with_images).collect();
-    let (block_records, instances) = block_records(&shown, &extent_of, &rounder);
+    let (block_records, instances) = block_records(&shown, &extent_of, &rounder, &db.tables);
     let block_records: Vec<Record> = block_records.into_iter().map(&with_images).collect();
 
     // --- strings -------------------------------------------------------------
@@ -1778,6 +1778,7 @@ fn block_records(
     shown: &[(&Part, &Entity)],
     extent_of: &BTreeMap<EntityId, Rect>,
     rounder: &Rounder,
+    tables: &uncad_model::Tables,
 ) -> (Vec<Record>, BTreeMap<String, Vec<String>>) {
     let mut instances: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut out = Vec::new();
@@ -1797,21 +1798,21 @@ fn block_records(
             .filter(|a| !a.tag.is_empty())
             .map(|a| (a.tag.clone(), json!(decode_text(&a.text).plain)))
             .collect();
-        // Where the block's origin lands: the placement the model computes,
-        // its own plane included.
-        let placement = geom::insert_to_world(i);
+        // Where the reference is: the block's base point, placed -- the
+        // insertion point, taken to the world through the reference's own
+        // plane.
+        let placement = geom::insert_to_world(i, tables);
+        let base = geom::block_base_point(i, tables);
+        let at = placement.apply(uncad_model::Point2D {
+            x: base.x,
+            y: base.y,
+        });
         let mut v = Map::new();
         v.insert("id".into(), json!(id));
         v.insert("handle".into(), handle_of(&i.common));
         v.insert("block".into(), json!(i.block_name.name()));
         v.insert("layer".into(), json!(layer_name(&i.common.layer)));
-        v.insert(
-            "at".into(),
-            rounder.pt2(uncad_model::Point2D {
-                x: placement.e,
-                y: placement.f,
-            }),
-        );
+        v.insert("at".into(), rounder.pt2(at));
         v.insert(
             "rotation_deg".into(),
             json!(rounder.derived(i.rotation.to_degrees())),

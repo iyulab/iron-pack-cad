@@ -9,7 +9,7 @@
 //! what the file states, not an estimate.
 
 use uncad_model::model::{InsertEntity, Point2D, Point3D, PolylineVertex};
-use uncad_model::{Affine2, Ocs};
+use uncad_model::{Affine2, Ocs, Tables};
 
 /// The circular arc a bulge describes between two vertices.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -327,13 +327,28 @@ pub fn plane_to_world(extrusion: Point3D, elevation: f64) -> Affine2 {
 /// Where an INSERT puts its block's entities in the world's XY: the
 /// model's [`InsertEntity::world_transform`] for a reference in a plane
 /// parallel to the world's, and otherwise its placement in its own plane
-/// with that plane seen from above ([`plane_to_world`]).
-pub fn insert_to_world(insert: &InsertEntity) -> Affine2 {
-    insert.world_transform().unwrap_or_else(|| {
+/// with that plane seen from above ([`plane_to_world`]). The block's base
+/// point, which the placement puts on the insertion point, is looked up in
+/// `tables`; a block the tables do not hold has nothing to place, and is
+/// taken as based at the origin.
+pub fn insert_to_world(insert: &InsertEntity, tables: &Tables) -> Affine2 {
+    let base = block_base_point(insert, tables);
+    insert.world_transform(base).unwrap_or_else(|| {
         insert
-            .transform()
+            .transform(base)
             .then(&plane_to_world(insert.extrusion, insert.insertion_point.z))
     })
+}
+
+/// The base point of the block `insert` refers to -- the point its placement
+/// puts on the insertion point -- or the origin for a block the tables do not
+/// hold.
+pub fn block_base_point(insert: &InsertEntity, tables: &Tables) -> Point3D {
+    insert
+        .block_name
+        .resolved()
+        .and_then(|name| tables.block_records.get(name))
+        .map_or_else(Point3D::default, |block| block.base_point)
 }
 
 /// Whether `m` keeps shapes: a rotation, a uniform scale and possibly one

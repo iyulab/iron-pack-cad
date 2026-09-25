@@ -306,6 +306,7 @@ pub fn with_blocks(entities: Vec<Entity>, blocks: Vec<(&str, Vec<Entity>)>) -> C
     tables.block_records.insert(
         "*Model_Space".into(),
         BlockRecord {
+            base_point: Default::default(),
             name: "*Model_Space".into(),
             entities: entities.clone(),
         },
@@ -314,6 +315,7 @@ pub fn with_blocks(entities: Vec<Entity>, blocks: Vec<(&str, Vec<Entity>)>) -> C
         tables.block_records.insert(
             name.into(),
             BlockRecord {
+                base_point: Default::default(),
                 name: name.into(),
                 entities: block,
             },

@@ -328,7 +328,7 @@ fn place(index: &mut PathIndex<'_>, b: &TextBox) -> Option<PlacedText> {
             return None;
         }
         let (block, placement) = match owner {
-            Entity::Insert(i) => (&i.block_name, crate::geom::insert_to_world(i)),
+            Entity::Insert(i) => (&i.block_name, crate::geom::insert_to_world(i, tables)),
             Entity::AcadTable(t) => (
                 &t.block_name,
                 Affine2::placement(

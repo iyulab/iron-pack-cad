@@ -188,6 +188,7 @@ fn colliding_layout_names() -> CadDatabase {
         db.tables.block_records.insert(
             block.clone(),
             BlockRecord {
+                base_point: Default::default(),
                 name: block.clone(),
                 entities: paper,
             },
@@ -363,6 +364,7 @@ fn add_paper_space(db: &mut CadDatabase, entities: Vec<Entity>) {
     db.tables.block_records.insert(
         "*Paper_Space".into(),
         BlockRecord {
+            base_point: Default::default(),
             name: "*Paper_Space".into(),
             entities,
         },
