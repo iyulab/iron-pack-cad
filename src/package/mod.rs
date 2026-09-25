@@ -1687,6 +1687,7 @@ fn geometry_records(
                 v.insert("paths".into(), json!(h.boundary_paths.len()));
                 v.insert("solid_fill".into(), json!(h.solid_fill));
                 confidence = "estimated";
+                why = Some("a hatch's area and boundary length are not measured");
             }
             Entity::Leader(l) => {
                 v.insert("vertex_count".into(), json!(l.vertices.len()));
@@ -1715,6 +1716,7 @@ fn geometry_records(
             }
             _ => {
                 confidence = "estimated";
+                why = Some("no measure is computed for this type; the record gives its extent");
             }
         }
         let (confidence, capped) = capped_confidence(confidence, e.common().confidence);

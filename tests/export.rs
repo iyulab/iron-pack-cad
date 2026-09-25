@@ -967,3 +967,26 @@ fn an_image_is_a_geometry_record_naming_its_file() {
         "{report}"
     );
 }
+
+/// A geometry record that is not `exact` always says why: the hatch of a
+/// real file, and every type the package measures nothing of.
+#[test]
+fn every_geometry_record_that_is_not_exact_says_why() {
+    let tmp = TempDir::new("why");
+    export_fixture(
+        "hatched_viewport_r2000.dxf",
+        &tmp.0,
+        &ExportOptions::default(),
+    )
+    .expect("exports");
+    let geometry = records(&tmp.0, "geometry");
+    assert!(
+        geometry.iter().any(|r| r["type"] == "HATCH"),
+        "the fixture has a hatch"
+    );
+    for r in &geometry {
+        if r["confidence"] != "exact" {
+            assert!(r["why"].is_string(), "{r}");
+        }
+    }
+}

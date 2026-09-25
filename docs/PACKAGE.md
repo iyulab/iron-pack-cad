@@ -271,8 +271,8 @@ when it leaves the plane); an arc's centre, radius, angles, sweep and
 length; a circle's length and area; a polyline's vertices (with bulges
 when it has any), length or perimeter, and for a closed one `area`,
 `orientation` and `simple`; an image's placement and file path. `confidence`
-is `exact`, `estimated` or `unavailable`, with `why` where a specific
-reason is recorded. A self-intersecting outline's area is `unavailable`. An outline of
+is `exact`, `estimated` or `unavailable`, with `why` whenever it is not
+`exact`. A self-intersecting outline's area is `unavailable`. An outline of
 more than 2 000 vertices is not tested for self-intersection: `simple` is
 `null`, never `true`.
 
