@@ -43,8 +43,9 @@
 //!   drawing.svg       with `svg: true`;  entities.json  with `full: true`
 //! ```
 //!
-//! Every JSON file carries `"$schema": "iron-pack-cad/1"` and a `units`
-//! block; record files above `shard_kb` are split into `name.NNN.json` and
+//! Every JSON file carries `"$schema": "iron-pack-cad/1"`; `manifest.json`,
+//! `drawing.json` and the record files also carry a `units` block. Record
+//! files above `shard_kb` are split into `name.NNN.json` and
 //! listed in the manifest's `shard_index`. The package is the same bytes for
 //! the same input and options, `report.json` included. Re-exporting into a
 //! directory first clears what the previous `manifest.json` listed, and

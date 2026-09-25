@@ -3,7 +3,8 @@
 `export_package` turns a drawing, given as the `uncad-model` entity model and
 optionally its header, into a directory that a language model or a vision
 model can read. The images say *where* things are; the JSON records say
-*what* they are, with the exact numbers a picture cannot give. Every record
+*what* they are, with the exact numbers a picture cannot give. The images are
+drawn by `iron-render-cad` (called "the renderer" below). Every record
 points at the pixels it is drawn in, and every image publishes the map from
 its pixels back to drawing coordinates.
 
@@ -42,9 +43,9 @@ reader's decision. A value is only withheld when it is not a value at all.
 
 **Stated, not guessed.** Units come from the header's `$INSUNITS`; without
 it the unit is `du` (drawing units) and `to_mm` is null. A derived value
-that is approximate says so (`confidence`, `bbox_confidence`) and says why.
-A record never claims more certainty than the model gives the entity it is
-made from.
+that is approximate says so (`confidence`, `bbox_confidence`), with `why`
+where a specific reason is recorded. A geometry or region record's
+`confidence` never exceeds the model's own confidence in the entity.
 
 **Pixel boxes are clipped; world boxes are whole.** A record's `bbox` is its
 full extent in drawing units. Its pixel box on an image is clipped to that
@@ -128,7 +129,8 @@ engaged, and the warnings.
   lookup checks every entry whose bounds contain it.
 - `manifest.json` is written last. A directory that holds one is a finished
   package. Exporting into a directory first removes every file the previous
-  manifest listed, and nothing else.
+  manifest listed, and the directories under `frames/` and `sheets/` that
+  this leaves empty; nothing else is touched.
 
 ## Images
 
@@ -171,7 +173,8 @@ overview itself is never trimmed to a frame.
 
 ### Tile pyramid
 
-Each level doubles the previous level's scale. The depth is set by the
+Level `z1` is twice the frame overview's scale, and each level doubles
+again. The depth is set by the
 frame's text: the count-weighted median text height is the dominant class,
 and the pyramid goes as deep as that class needs to reach the target pixel
 height (14 px by default), bounded by `max_levels` (5). The tile budget
@@ -184,7 +187,8 @@ class with its pixel height at that depth.
 
 A level is cut into square tiles of the profile's size, stepping by the
 tile size minus the overlap. The last row and column are shifted inward so
-every tile has the full size. Tile ids are `fN/z{z}/r{rr}_c{cc}`, row 0 at
+every tile has the full size (or the whole level, when that is smaller than
+a tile). Tile ids are `fN/z{z}/r{rr}_c{cc}`, row 0 at
 the top. A tile that no visible entity reaches is not written; `tiles.json`
 lists it as empty with the reason `no_visible_entity_on_tile`, and lists
 every written tile with its byte count and SHA-256.
@@ -193,8 +197,9 @@ every written tile with its byte count and SHA-256.
 neighbouring tile whenever it spans no more pixels, at that level, than the
 overlap, so a label or
 a symbol at a seam is always readable somewhere. The same record then
-appears on more than one tile; its `tiles` list names all of them, and
-duplicates are reconciled by record id, never by comparing boxes.
+appears in each overlapping tile's sidecar under the same `id`, and its
+`tiles` list names all of them, so a repeat is identified by id, not by
+comparing boxes.
 
 Each tile is drawn from the entities whose extent reaches it, with a small
 margin for strokes and text overhang. Text extents are the measured glyph
@@ -209,7 +214,7 @@ both affines, `canvas_origin_px`, `overlap_px`, its written `neighbors`
 present, and the records on it as positional rows whose fields are named
 in `columns`: texts (id, pixel box, text), dimensions (id, pixel box,
 display, both measurements), blocks, regions (with area) and geometry (with
-type). A sidecar never exceeds 32 KB. When it would, geometry rows are cut
+type). A sidecar is kept within 32 KB. When it would, geometry rows are cut
 first, then the other rows, then the layer list, and each cut is flagged
 (`records_truncated`, `layers_truncated`). `counts` and `geometry_by_kind`
 are never truncated.
@@ -266,8 +271,8 @@ when it leaves the plane); an arc's centre, radius, angles, sweep and
 length; a circle's length and area; a polyline's vertices (with bulges
 when it has any), length or perimeter, and for a closed one `area`,
 `orientation` and `simple`; an image's placement and file path. `confidence`
-is `exact`, `estimated` or `unavailable`, with `why` when it is not
-`exact`. A self-intersecting outline's area is `unavailable`. An outline of
+is `exact`, `estimated` or `unavailable`, with `why` where a specific
+reason is recorded. A self-intersecting outline's area is `unavailable`. An outline of
 more than 2 000 vertices is not tested for self-intersection: `simple` is
 `null`, never `true`.
 
@@ -286,7 +291,7 @@ definitions are in `drawing.json`.
 `strings.json` maps normalized strings to record ids: every text, every
 dimension label and every attribute value. Normalization is Unicode NFKC
 (so `㎡` becomes `m2` and full-width digits become ASCII), the fraction
-slash as `/`, case folding and whitespace collapsed to single spaces. Each
+slash as `/`, lower-casing and whitespace collapsed to single spaces. Each
 string is also indexed with all spaces removed, so `32.5 m2` and `32.5m2`
 meet. A lookup goes from the string to ids, from an id to its record file
 through `shard_index`, and from the record to its tiles.
