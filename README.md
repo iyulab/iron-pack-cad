@@ -14,7 +14,7 @@ Input is the [uncad-model](https://github.com/iyulab/uncad-model) entity model; 
 
 ## Status
 
-0.x, in development. The package layout is described in the crate documentation.
+0.x, in development. The package -- its files, records and principles -- is described in [docs/PACKAGE.md](docs/PACKAGE.md).
 
 ## License
 
