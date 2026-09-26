@@ -1332,7 +1332,11 @@ fn dimension_records(
             .style_name
             .resolved()
             .and_then(|name| db.tables.dim_styles.get(name));
-        let style = EffectiveStyle::resolve(style_record, defaults);
+        let own = crate::dimension::own_style(
+            style_record,
+            d.style_overrides.as_deref().unwrap_or_default(),
+        );
+        let style = EffectiveStyle::of(own.as_ref(), defaults);
         let shown_text = display_text(
             d,
             &style,
@@ -1391,7 +1395,7 @@ fn dimension_records(
         if d.kind == Some(uncad_model::model::DimensionKind::ArcLength) {
             v.insert(
                 "arc_symbol".into(),
-                serde_json::to_value(crate::dimension::arc_symbol(style_record))?,
+                serde_json::to_value(own.as_ref().and_then(|s| s.arc_symbol))?,
             );
         }
         if let Some(axis) = d.ordinate_axis {

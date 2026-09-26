@@ -27,7 +27,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use uncad_model::model::{
-    DimensionEntity, DimensionKind, Entity, OrdinateAxis, Point3D, TextOverride, ToleranceEntity,
+    DimensionEntity, DimensionKind, Entity, OrdinateAxis, Point3D, StyleOverride, TextOverride,
+    ToleranceEntity,
 };
 use uncad_model::tables::{ArcSymbol, BlockRecord, DimStyleRecord, LinearUnitFormat};
 use uncad_model::Tables;
@@ -146,7 +147,13 @@ impl EffectiveStyle {
     /// says nothing, and the header stands in. DIMADEC -1 is AutoCAD's "as
     /// DIMDEC".
     pub fn resolve(style: Option<&DimStyleRecord>, header: &DimDefaults) -> EffectiveStyle {
-        let style = style.filter(|s| carries_a_body(s));
+        EffectiveStyle::of(own_style(style, &[]).as_ref(), header)
+    }
+
+    /// The values that govern a dimension's label from the style as the
+    /// dimension sees it (see [`own_style`]) -- its own overrides included
+    /// -- and the header where that says nothing.
+    pub fn of(style: Option<&DimStyleRecord>, header: &DimDefaults) -> EffectiveStyle {
         let dimlfac = style
             .and_then(|s| s.length_factor)
             .filter(|v| *v > 0.0 && v.is_finite())
@@ -203,7 +210,25 @@ impl EffectiveStyle {
 /// text, so the cached label never contains it, and a label this crate
 /// formats does not add it either -- the two would otherwise disagree.
 pub fn arc_symbol(style: Option<&DimStyleRecord>) -> Option<ArcSymbol> {
-    style.filter(|s| carries_a_body(s))?.arc_symbol
+    own_style(style, &[])?.arc_symbol
+}
+
+/// The dimension style as one dimension sees it: its DIMSTYLE when the file
+/// wrote one (not only the husk -- see `carries_a_body`), with the
+/// dimension's own overrides applied over it
+/// ([`DimStyleRecord::overridden`]); over nothing when the style says
+/// nothing, so that what the dimension itself states still counts. `None`
+/// when neither says anything. A dimension whose overrides the reader did
+/// not read passes none: its style then stands as written.
+pub fn own_style(
+    style: Option<&DimStyleRecord>,
+    overrides: &[StyleOverride],
+) -> Option<DimStyleRecord> {
+    let body = style.filter(|s| carries_a_body(s));
+    if overrides.is_empty() {
+        return body.cloned();
+    }
+    Some(body.cloned().unwrap_or_default().overridden(overrides))
 }
 
 /// Whether a dimension of this kind measures an angle.
@@ -965,6 +990,55 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(arc_symbol(Some(&husk)), None);
+    }
+
+    #[test]
+    fn a_dimensions_own_overrides_count_over_its_style() {
+        use uncad_model::model::OverrideValue;
+        let header = header(4, 3, 8);
+        let three = DimStyleRecord {
+            decimal_places: Some(3),
+            length_factor: Some(1.0),
+            ..metric()
+        };
+        // DIMDEC 0 and DIMLFAC 25.4 on the dimension itself, over a style
+        // asking for three decimals and no factor.
+        let overrides = [
+            StyleOverride {
+                variable: 271,
+                value: OverrideValue::Integer(0),
+            },
+            StyleOverride {
+                variable: 144,
+                value: OverrideValue::Real(25.4),
+            },
+        ];
+        let own = own_style(Some(&three), &overrides);
+        let resolved = EffectiveStyle::of(own.as_ref(), &header);
+        assert_eq!((resolved.dimdec, resolved.dimlfac), (0, 25.4));
+        assert_eq!(
+            format_measurement(50.0, false, &resolved),
+            "1270",
+            "50 x 25.4, whole"
+        );
+        // No overrides: the style as written, as `resolve` gives it.
+        assert_eq!(
+            EffectiveStyle::of(own_style(Some(&three), &[]).as_ref(), &header),
+            EffectiveStyle::resolve(Some(&three), &header)
+        );
+        // A style that is only a husk says nothing, but what the dimension
+        // states still counts; the header fills the rest.
+        let husk = DimStyleRecord {
+            text_height: Some(0.0),
+            arrow_size: Some(0.0),
+            ..Default::default()
+        };
+        let resolved =
+            EffectiveStyle::of(own_style(Some(&husk), &overrides[..1]).as_ref(), &header);
+        assert_eq!(
+            (resolved.dimdec, resolved.dimadec, resolved.dimzin),
+            (0, 3, 8)
+        );
     }
 
     #[test]

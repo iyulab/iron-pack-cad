@@ -263,8 +263,10 @@ by basic rules), or `none`. When the label holds a number formatted here,
 one. The record also carries `points` by role, `definition_point`,
 `text_at`, `rotation_deg` for a rotated dimension, `ordinate_axis` for an
 ordinate, and `arc_symbol` for an arc length -- the style's `DIMARCSYM`,
-which is drawn beside the label and never part of `display`. A dimension
-carries no `confidence`.
+which is drawn beside the label and never part of `display`. The style
+values (`dimlfac`, `arc_symbol`, and those a `formatted` label is written
+with) are the style as the dimension sees it: its DIMSTYLE with the
+dimension's own overrides applied. A dimension carries no `confidence`.
 
 **Geometry** (`geometry.json`): every other visible entity with an extent,
 with `type`, `unit`, key points and closed-form measures -- a line's
