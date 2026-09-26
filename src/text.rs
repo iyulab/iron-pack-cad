@@ -68,12 +68,13 @@ pub struct DecodedText {
     pub fractions: Vec<Fraction>,
 }
 
-/// Decodes an MTEXT string (also what a dimension's cached label holds).
+/// Decodes an MTEXT string -- also a dimension's text and a feature
+/// control frame's (TOLERANCE), which are written in MTEXT codes.
 pub fn decode_mtext(raw: &str) -> DecodedText {
     decode(raw, true)
 }
 
-/// Decodes a TEXT / ATTRIB / TOLERANCE string: only the `%%` codes and
+/// Decodes a TEXT / ATTRIB string: only the `%%` codes and
 /// `\U+XXXX` escapes apply, a backslash is otherwise a backslash.
 pub fn decode_text(raw: &str) -> DecodedText {
     decode(raw, false)
@@ -402,6 +403,15 @@ mod tests {
         assert_eq!(decode_text("a%%009b").plain, "a\tb");
         assert_eq!(decode_text("%%065").plain, "A");
         assert!(!decode_text("ZE%%001RO").plain.chars().any(is_xml_illegal));
+    }
+
+    #[test]
+    fn a_feature_control_frame_reads_as_mtext() {
+        // The symbol-font switch and its braces are codes; `%%v` is kept.
+        assert_eq!(
+            plain_mtext(r"{\Fgdt;r}%%v1%%v2%%v%%v%%v"),
+            "r%%v1%%v2%%v%%v%%v"
+        );
     }
 
     #[test]

@@ -435,7 +435,8 @@ fn place(index: &mut PathIndex<'_>, b: &TextBox) -> Option<PlacedText> {
         Located::Entity(Entity::Tolerance(t)) => Leaf {
             kind: "TOLERANCE",
             raw: &t.text_value,
-            text: decode_text(&t.text_value).plain,
+            // Written in MTEXT codes (`{\Fgdt;j}` picks the symbol font).
+            text: decode_mtext(&t.text_value).plain,
             base: Point2D {
                 x: t.insertion_point.x,
                 y: t.insertion_point.y,
