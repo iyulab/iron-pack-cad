@@ -250,6 +250,7 @@ impl From<uncad_model::JsonError> for ExportError {
 /// One image of the package: where it is and how its pixels map to the
 /// drawing.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct ImageInfo {
     pub id: String,
     pub png: String,
@@ -323,6 +324,7 @@ impl ImageInfo {
 
 /// One zoom level of a frame's tile pyramid.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct LevelInfo {
     pub z: u32,
     pub ppu: f64,
@@ -339,6 +341,7 @@ pub struct LevelInfo {
 /// One text height class of a frame and how legible it is at the deepest
 /// level.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct HeightClass {
     pub height: f64,
     pub count: usize,
@@ -351,6 +354,7 @@ pub struct HeightClass {
 /// group of entities); detached groups -- a detail drawn beside the plan --
 /// get `f1`, `f2`, ...
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct FrameReport {
     pub id: String,
     /// `primary` or `detached`.
@@ -370,6 +374,7 @@ pub struct FrameReport {
 /// Why the picture leaves an entity out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ExcludeReason {
     /// Far larger than the rest of the drawing (the renderer's guard, 20x):
     /// not drawn.
@@ -383,6 +388,7 @@ pub enum ExcludeReason {
 
 /// A top-level entity the picture does not show.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct Excluded {
     /// Its reference ID in the model.
     pub id: u64,
@@ -396,6 +402,7 @@ pub struct Excluded {
 
 /// What the overview shows and what it leaves out.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct CropReport {
     pub source: CropSource,
     /// The world rectangle the overview shows, padding and lattice growth
@@ -415,6 +422,7 @@ pub struct CropReport {
 
 /// How many of each thing the package holds.
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[non_exhaustive]
 pub struct Counts {
     /// Top-level entities of model space.
     pub entities: usize,
@@ -438,6 +446,7 @@ pub struct Counts {
 
 /// What [`export_package`] wrote.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ExportReport {
     pub dir: PathBuf,
     pub files: Vec<WrittenFile>,

@@ -57,6 +57,7 @@ pub struct Fraction {
 
 /// What a raw text string decodes to.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DecodedText {
     /// The readable text. Paragraph breaks (`\P`, `\X`, `\N`) are `\n`;
     /// a stack `\S a#b;` reads as `a/b` (`a^b` for a tolerance stack), with a

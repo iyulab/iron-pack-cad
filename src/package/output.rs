@@ -12,6 +12,7 @@ use super::{ExportError, SCHEMA};
 
 /// One file the package holds.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct WrittenFile {
     /// Relative to the package directory, `/`-separated.
     pub path: String,

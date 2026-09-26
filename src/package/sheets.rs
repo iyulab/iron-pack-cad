@@ -18,6 +18,7 @@ use crate::frame::{Rect, EMPTY_RECT};
 
 /// A viewport on a sheet, as `sheets.json` lists it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct SheetViewport {
     /// The VIEWPORT's reference ID in the model.
     pub id: u64,
@@ -48,6 +49,7 @@ pub struct SheetViewport {
 
 /// One paper layout: its sheet, its viewports and its image.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct SheetReport {
     pub name: String,
     pub tab_order: i32,

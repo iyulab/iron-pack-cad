@@ -69,6 +69,7 @@ impl DimDefaults {
 /// anything (`DIMDEC` 4, `DIMLUNIT` 2 decimal, `DIMZIN` 0, `DIMADEC` 0,
 /// `DIMLFAC` 1, no rounding, no `DIMPOST`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct EffectiveStyle {
     pub dimlfac: f64,
     /// Decimal places, at most 8 (see [`EffectiveStyle::resolve`]).
@@ -480,6 +481,7 @@ pub enum ValueFrom {
 
 /// A dimension's label, as a reader sees it and as the file wrote it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct DisplayText {
     /// With the codes read (see [`crate::text`]).
     pub text: String,
