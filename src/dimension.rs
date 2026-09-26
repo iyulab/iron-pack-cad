@@ -653,6 +653,7 @@ mod tests {
             text_rotation: 0.0,
             style_name: Ref::Resolved("STANDARD".into()),
             ordinate_axis: None,
+            style_overrides: None,
         }
     }
 

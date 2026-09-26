@@ -46,6 +46,7 @@ fn aligned(id: u64, stored: Option<f64>) -> Entity {
         text_rotation: 0.0,
         style_name: Ref::Absent,
         ordinate_axis: None,
+        style_overrides: None,
     })
 }
 
