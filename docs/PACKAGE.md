@@ -102,7 +102,9 @@ of their instances), and entity counts by type.
 
 **`report.json`** lists the entities the picture leaves out and why, the
 hidden entities by reason, unsupported entity types, empty blocks,
-unresolved block references, the renderer's robustness limits that were
+unresolved block references, the ARCs not drawn because their start and
+end angles are equal (the format does not say whether such an arc is the
+whole circle or nothing), the renderer's robustness limits that were
 engaged, and the warnings.
 
 ## Conventions

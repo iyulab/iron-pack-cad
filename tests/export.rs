@@ -887,8 +887,8 @@ fn a_mirrored_block_places_its_text_where_the_picture_draws_it() {
 
 #[test]
 fn a_record_is_built_from_a_polyline_whose_first_vertex_repeats() {
-    // A closed outline whose file repeats the first vertex: four segments,
-    // not five, and the area of the square.
+    // A closed outline whose file repeats the first vertex: the repeat adds
+    // a segment of no length, and the outline has the area of the square.
     let db = model_space(vec![Entity::LwPolyline(LwPolylineEntity {
         common: common(0x30),
         vertices: [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (0.0, 0.0)]
@@ -989,4 +989,53 @@ fn every_geometry_record_that_is_not_exact_says_why() {
             assert!(r["why"].is_string(), "{r}");
         }
     }
+}
+
+#[test]
+fn an_arc_whose_angles_are_equal_is_named_in_the_report_not_measured() {
+    use uncad_model::model::ArcEntity;
+    let arc = |id: u64, start: f64, end: f64| {
+        Entity::Arc(ArcEntity {
+            common: common(id),
+            center: p3(0.0, 0.0),
+            radius: 10.0,
+            start_angle: start,
+            end_angle: end,
+            extrusion: z_axis(),
+        })
+    };
+    // The quarter from 0 to 90 degrees is measured; the arc whose angles are
+    // equal is neither the whole circle nor nothing as far as the file says.
+    let db = model_space(vec![
+        arc(0x40, 1.0, 1.0),
+        arc(0x41, 0.0, std::f64::consts::FRAC_PI_2),
+    ]);
+    let tmp = TempDir::new("arc-equal");
+    export_db(&db, &tmp.0, &ExportOptions::default()).expect("exports");
+    let geometry = records(&tmp.0, "geometry");
+    assert_eq!(geometry.len(), 1, "{geometry:?}");
+    let quarter = by_handle(&geometry, "41");
+    assert_eq!(quarter["sweep_deg"], 90.0, "{quarter}");
+    let report = read_json(&tmp.0.join("report.json"));
+    assert_eq!(report["undefined_arcs"], serde_json::json!([0x40]));
+}
+
+#[test]
+fn an_ellipse_whose_parameters_are_equal_is_the_whole_ellipse() {
+    use uncad_model::model::EllipseEntity;
+    // Semi-axes 10 and 5: pi * 10 * 5 = 157.079632679. The file states the
+    // same parameter twice, away from zero.
+    let db = model_space(vec![Entity::Ellipse(EllipseEntity {
+        common: common(0x50),
+        center: p3(0.0, 0.0),
+        major_axis_endpoint: p3(10.0, 0.0),
+        axis_ratio: 0.5,
+        start_angle: 1.0,
+        end_angle: 1.0,
+        extrusion: z_axis(),
+    })]);
+    let tmp = TempDir::new("ellipse-equal");
+    export_db(&db, &tmp.0, &ExportOptions::default()).expect("exports");
+    let geometry = records(&tmp.0, "geometry");
+    assert_eq!(geometry[0]["area"], 157.079632679, "{:?}", geometry[0]);
 }

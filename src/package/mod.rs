@@ -1181,6 +1181,7 @@ pub fn export_package(
         "unsupported_types": scene.unsupported_types,
         "empty_blocks": scene.empty_blocks,
         "unresolved_block_refs": scene.unresolved_block_refs.iter().map(|id| id.value()).collect::<Vec<_>>(),
+        "undefined_arcs": scene.undefined_arcs.iter().map(|id| id.value()).collect::<Vec<_>>(),
         "limits": limits_json(limits, &top),
         "warnings": warnings,
     });
@@ -1485,10 +1486,6 @@ fn geometry_records(
                     why = Some("drawn in a tilted plane: the centre is its plan projection, the angles are the arc's own");
                     (a.start_angle, a.end_angle)
                 };
-                let mut sweep = end - start;
-                if sweep <= 0.0 {
-                    sweep += TAU;
-                }
                 v.insert("center".into(), rounder.pt2(center));
                 v.insert("r".into(), json!(rounder.derived(a.radius)));
                 v.insert(
@@ -1496,11 +1493,17 @@ fn geometry_records(
                     json!(rounder.derived(start.to_degrees())),
                 );
                 v.insert("end_deg".into(), json!(rounder.derived(end.to_degrees())));
-                v.insert(
-                    "sweep_deg".into(),
-                    json!(rounder.derived(sweep.to_degrees())),
-                );
-                v.insert("length".into(), json!(rounder.derived(a.radius * sweep)));
+                // How far it runs is the model's: a mirror turns its
+                // direction, not its length. An arc with no sweep (equal
+                // angles) draws nothing, so it has no extent and no record;
+                // `report.json` names it.
+                if let Some(sweep) = a.sweep() {
+                    v.insert(
+                        "sweep_deg".into(),
+                        json!(rounder.derived(sweep.to_degrees())),
+                    );
+                    v.insert("length".into(), json!(rounder.derived(a.radius * sweep)));
+                }
             }
             Entity::Circle(c) => {
                 let plane = geom::plane_to_world(c.extrusion, c.center.z);
@@ -1524,9 +1527,7 @@ fn geometry_records(
                 v.insert("center".into(), rounder.pt3(el.center));
                 v.insert("major_axis".into(), rounder.pt3(el.major_axis_endpoint));
                 v.insert("ratio".into(), json!(rounder.derived(el.axis_ratio)));
-                let full = (el.end_angle - el.start_angle - TAU).abs() < 1e-9
-                    || (el.start_angle == 0.0 && el.end_angle == 0.0);
-                if full {
+                if el.sweep() == TAU {
                     v.insert(
                         "area".into(),
                         json!(rounder.derived(PI * a * a * el.axis_ratio)),

@@ -3,148 +3,39 @@
 //! crosses itself, a polygon's centroid, and the map from an entity's own
 //! plane to the world.
 //!
-//! The model states a drawing and computes nothing but a block reference's
-//! placement ([`uncad_model::Affine2`]); lengths and areas are this
-//! consumer's derivations, and every one of them is exact arithmetic on
-//! what the file states, not an estimate.
+//! The model states a drawing and the coordinate arithmetic the format
+//! defines -- a block reference's placement, a bulge's arc, a curve's
+//! points; this module takes a polyline's segments from it
+//! ([`uncad_model::bulge::segments`]) rather than working them out again.
+//! Lengths and areas are this consumer's derivations, and every one of them
+//! is exact arithmetic on what the file states, not an estimate.
 
+use uncad_model::bulge::{segments, BulgeArc, Segment};
 use uncad_model::model::{InsertEntity, Point2D, Point3D, PolylineVertex};
 use uncad_model::{Affine2, Ocs, Tables};
 
-/// The circular arc a bulge describes between two vertices.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BulgeArc {
-    pub center: Point2D,
-    pub radius: f64,
-    /// Radians, of the arc's first point about the centre.
-    pub start_angle: f64,
-    /// Radians, of the arc's second point about the centre.
-    pub end_angle: f64,
-    /// The signed included angle in radians: positive counter-clockwise.
-    pub sweep: f64,
+/// How long the arc a bulge describes is.
+fn arc_length(arc: &BulgeArc) -> f64 {
+    arc.radius * arc.sweep.abs()
 }
 
-impl BulgeArc {
-    pub fn length(&self) -> f64 {
-        self.radius * self.sweep.abs()
-    }
-
-    /// The area between the arc and its chord (the circular segment),
-    /// always positive.
-    pub fn segment_area(&self) -> f64 {
-        let theta = self.sweep.abs();
-        self.radius * self.radius / 2.0 * (theta - theta.sin())
-    }
+/// The area between a bulge's arc and its chord (the circular segment),
+/// always positive.
+fn segment_area(arc: &BulgeArc) -> f64 {
+    let theta = arc.sweep.abs();
+    arc.radius * arc.radius / 2.0 * (theta - theta.sin())
 }
 
-/// The arc from `from` to `to` with the given bulge -- the tangent of a
-/// quarter of its included angle, positive counter-clockwise -- or `None`
-/// for a straight segment (bulge 0 or not a number, or coincident points).
-pub fn bulge_arc(from: Point2D, to: Point2D, bulge: f64) -> Option<BulgeArc> {
-    if bulge == 0.0 || !bulge.is_finite() {
-        return None;
+fn segment_length(s: &Segment) -> f64 {
+    match &s.arc {
+        Some(arc) => arc_length(arc),
+        None => (s.to.x - s.from.x).hypot(s.to.y - s.from.y),
     }
-    let (dx, dy) = (to.x - from.x, to.y - from.y);
-    let chord = dx.hypot(dy);
-    if chord < 1e-12 {
-        return None;
-    }
-    let sweep = 4.0 * bulge.atan();
-    let radius = chord * (1.0 + bulge * bulge) / (4.0 * bulge.abs());
-    let sagitta = chord * bulge.abs() / 2.0;
-    // The centre sits on the chord's perpendicular bisector, to the left of
-    // travel for a counter-clockwise arc, `radius - sagitta` away (negative
-    // past a semicircle, i.e. on the bulge's own side).
-    let mid = Point2D {
-        x: (from.x + to.x) / 2.0,
-        y: (from.y + to.y) / 2.0,
-    };
-    let left = Point2D {
-        x: -dy / chord,
-        y: dx / chord,
-    };
-    let offset = (radius - sagitta) * bulge.signum();
-    let center = Point2D {
-        x: mid.x + left.x * offset,
-        y: mid.y + left.y * offset,
-    };
-    Some(BulgeArc {
-        center,
-        radius,
-        start_angle: (from.y - center.y).atan2(from.x - center.x),
-        end_angle: (to.y - center.y).atan2(to.x - center.x),
-        sweep,
-    })
-}
-
-/// One segment of a polyline.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Segment {
-    Line {
-        from: Point2D,
-        to: Point2D,
-    },
-    Arc {
-        from: Point2D,
-        to: Point2D,
-        bulge: f64,
-        arc: BulgeArc,
-    },
-}
-
-impl Segment {
-    pub fn length(&self) -> f64 {
-        match self {
-            Segment::Line { from, to } => (to.x - from.x).hypot(to.y - from.y),
-            Segment::Arc { arc, .. } => arc.length(),
-        }
-    }
-}
-
-/// The segments of a polyline: a vertex's bulge applies to the segment
-/// leaving it, and a closed polyline gets the segment from its last vertex
-/// back to its first. A closing vertex that repeats the first one is
-/// dropped first, so it does not add a zero-length segment.
-pub fn polyline_segments(vertices: &[PolylineVertex], closed: bool) -> Vec<Segment> {
-    let vertices = without_repeated_close(vertices, closed);
-    let n = vertices.len();
-    if n < 2 {
-        return Vec::new();
-    }
-    let count = if closed { n } else { n - 1 };
-    (0..count)
-        .map(|i| {
-            let (from, to) = (vertices[i].point, vertices[(i + 1) % n].point);
-            let bulge = vertices[i].bulge;
-            match bulge_arc(from, to, bulge) {
-                Some(arc) => Segment::Arc {
-                    from,
-                    to,
-                    bulge,
-                    arc,
-                },
-                None => Segment::Line { from, to },
-            }
-        })
-        .collect()
-}
-
-fn without_repeated_close(vertices: &[PolylineVertex], closed: bool) -> &[PolylineVertex] {
-    if closed && vertices.len() > 2 {
-        let (first, last) = (vertices[0].point, vertices[vertices.len() - 1].point);
-        if (first.x - last.x).abs() < 1e-9 && (first.y - last.y).abs() < 1e-9 {
-            return &vertices[..vertices.len() - 1];
-        }
-    }
-    vertices
 }
 
 /// The polyline's length (its perimeter when closed), arcs included.
 pub fn polyline_length(vertices: &[PolylineVertex], closed: bool) -> f64 {
-    polyline_segments(vertices, closed)
-        .iter()
-        .map(Segment::length)
-        .sum()
+    segments(vertices, closed).map(|s| segment_length(&s)).sum()
 }
 
 /// The signed area a polyline encloses, arcs included: the shoelace area of
@@ -154,14 +45,15 @@ pub fn polyline_length(vertices: &[PolylineVertex], closed: bool) -> f64 {
 /// segment from its last vertex back to its first for this purpose: the
 /// bulge stored on the last vertex (AutoCAD keeps one there, e.g. after
 /// BREAK or TRIM) applies to no segment, exactly as in
-/// [`polyline_segments`]. Self-intersecting outlines give a value with no
+/// the model's [`segments`]. Self-intersecting outlines give a value with no
 /// geometric meaning; see [`is_simple`].
 pub fn polyline_signed_area(vertices: &[PolylineVertex], closed: bool) -> f64 {
-    let mut segments = polyline_segments(vertices, closed);
+    let mut segments: Vec<Segment> = segments(vertices, closed).collect();
     if !closed && vertices.len() >= 2 {
-        segments.push(Segment::Line {
+        segments.push(Segment {
             from: vertices[vertices.len() - 1].point,
             to: vertices[0].point,
+            arc: None,
         });
     }
     // Three straight segments are the fewest that can enclose anything --
@@ -171,26 +63,18 @@ pub fn polyline_signed_area(vertices: &[PolylineVertex], closed: bool) -> f64 {
     // zero, so what is left is the two circular-segment terms, which are
     // its area. Fewer than three segments with no arc among them still
     // encloses nothing.
-    if segments.len() < 3 && !segments.iter().any(|s| matches!(s, Segment::Arc { .. })) {
+    if segments.len() < 3 && segments.iter().all(|s| s.arc.is_none()) {
         return 0.0;
     }
     let mut area = 0.0;
-    for segment in &segments {
-        match *segment {
-            Segment::Line { from, to } => area += (from.x * to.y - to.x * from.y) / 2.0,
-            Segment::Arc {
-                from,
-                to,
-                bulge,
-                arc,
-            } => {
-                area += (from.x * to.y - to.x * from.y) / 2.0;
-                // A counter-clockwise arc bulges to the right of travel,
-                // which is outward for a counter-clockwise outline and
-                // inward for a clockwise one -- so adding a signed term does
-                // the right thing for both orientations.
-                area += arc.segment_area() * bulge.signum();
-            }
+    for Segment { from, to, arc } in &segments {
+        area += (from.x * to.y - to.x * from.y) / 2.0;
+        if let Some(arc) = arc {
+            // A counter-clockwise arc bulges to the right of travel, which
+            // is outward for a counter-clockwise outline and inward for a
+            // clockwise one -- so adding a signed term does the right thing
+            // for both orientations.
+            area += segment_area(arc) * arc.sweep.signum();
         }
     }
     area
@@ -420,22 +304,20 @@ mod tests {
             &[(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)],
             &[0.0, 0.41421356, 0.0, 0.0],
         );
-        let segments = polyline_segments(&vertices, true);
-        assert_eq!(segments.len(), 4);
-        let Segment::Arc { arc, .. } = segments[1] else {
-            panic!("second segment is the arc");
-        };
+        let all: Vec<Segment> = segments(&vertices, true).collect();
+        assert_eq!(all.len(), 4);
+        let arc = all[1].arc.expect("second segment is the arc");
         assert!(
             close(arc.center.x, 75.0) && close(arc.center.y, 25.0),
             "{arc:?}"
         );
         assert!(close(arc.radius, 35.355339), "{}", arc.radius);
         assert!(close(arc.sweep.to_degrees(), 90.0), "{}", arc.sweep);
-        assert!(close(arc.length(), 55.536037), "{}", arc.length());
+        assert!(close(arc_length(&arc), 55.536037), "{}", arc_length(&arc));
         assert!(
-            close(arc.segment_area(), 356.747702),
+            close(segment_area(&arc), 356.747702),
             "{}",
-            arc.segment_area()
+            segment_area(&arc)
         );
         assert!(close(polyline_length(&vertices, true), 305.536037));
         assert!(close(polyline_area(&vertices, true).unwrap(), 5356.747702));
@@ -455,7 +337,7 @@ mod tests {
     fn bulges_beyond_a_semicircle_put_the_centre_on_the_bulge_side() {
         // A 270-degree arc from (0,0) to (10,0): bulge = tan(67.5 deg).
         let bulge = (270f64 / 4.0).to_radians().tan();
-        let arc = bulge_arc(p(0.0, 0.0), p(10.0, 0.0), bulge).unwrap();
+        let arc = BulgeArc::between(p(0.0, 0.0), p(10.0, 0.0), bulge).unwrap();
         assert!(close(arc.sweep.to_degrees(), 270.0));
         // Centre below the chord (the arc bulges to the right of travel,
         // i.e. downward, and past a semicircle the centre is on that side):
@@ -471,14 +353,11 @@ mod tests {
     fn open_polylines_and_degenerate_input() {
         let vertices = vs(&[(0.0, 0.0), (3.0, 4.0)], &[]);
         assert!(close(polyline_length(&vertices, false), 5.0));
-        assert_eq!(polyline_segments(&vertices, true).len(), 2);
-        assert_eq!(polyline_segments(&vs(&[(1.0, 1.0)], &[]), true).len(), 0);
         assert_eq!(polyline_area(&vertices, false), None, "two open vertices");
-        assert!(bulge_arc(p(0.0, 0.0), p(0.0, 0.0), 1.0).is_none());
-        assert!(bulge_arc(p(0.0, 0.0), p(1.0, 0.0), f64::NAN).is_none());
-        // A repeated closing vertex does not add a zero-length segment.
+        // A closing vertex that repeats the first adds a segment of no
+        // length, which changes neither the length nor the area -- the file's
+        // vertices are taken as written.
         let repeated = vs(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 0.0)], &[]);
-        assert_eq!(polyline_segments(&repeated, true).len(), 3);
         assert!(close(polyline_area(&repeated, true).unwrap(), 6.0));
         assert!(close(polyline_length(&repeated, true), 12.0));
     }
@@ -633,5 +512,86 @@ mod tests {
         );
         assert!(!is_similarity(&tilted));
         assert!(map_polyline(&ocs, &tilted).is_none());
+    }
+}
+
+#[cfg(test)]
+mod revision_cloud {
+    // The package's polyline arithmetic against a revision cloud -- a closed
+    // LWPOLYLINE whose every segment is a 110-degree arc, over chords of
+    // differing lengths -- whose length and area are checked here against a
+    // computation that does not go through this crate.
+
+    use super::*;
+
+    /// Twenty-five vertices on an ellipse, unevenly spaced, counter-clockwise,
+    /// each segment bulging outward as a 110-degree arc.
+    fn revision_cloud() -> Vec<PolylineVertex> {
+        let n = 25;
+        let bulge = (110f64.to_radians() / 4.0).tan();
+        (0..n)
+            .map(|i| {
+                let t = std::f64::consts::TAU * i as f64 / n as f64 + 0.08 * (i as f64).sin();
+                PolylineVertex {
+                    bulge,
+                    ..PolylineVertex::straight(Point2D {
+                        x: 60.0 * t.cos(),
+                        y: 35.0 * t.sin(),
+                    })
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_revision_clouds_length_is_the_sum_of_its_arcs() {
+        let cloud = revision_cloud();
+        // Independently: chord c and bulge b give r = c (1 + b^2) / (4 |b|) and
+        // the arc length r * |4 atan b|, summed over the 25 closing segments.
+        let n = cloud.len();
+        let mut expected = 0.0;
+        for i in 0..n {
+            let (a, b) = (cloud[i].point, cloud[(i + 1) % n].point);
+            let chord = (b.x - a.x).hypot(b.y - a.y);
+            let bulge = cloud[i].bulge.abs();
+            let radius = chord * (1.0 + bulge * bulge) / (4.0 * bulge);
+            expected += radius * 4.0 * bulge.atan();
+        }
+        let length = polyline_length(&cloud, true);
+        assert!(
+            (length - expected).abs() < 1e-9 * expected,
+            "{length} vs {expected}"
+        );
+        // Every segment is a 110-degree arc, so the ratio of arc length to
+        // chord is the same for all of them: theta / (2 sin(theta / 2)).
+        let chords: Vec<PolylineVertex> = cloud
+            .iter()
+            .map(|v| PolylineVertex::straight(v.point))
+            .collect();
+        let chord_length = polyline_length(&chords, true);
+        let theta = 110f64.to_radians();
+        let ratio = theta / (2.0 * (theta / 2.0).sin());
+        assert!(
+            (length / chord_length - ratio).abs() < 1e-9,
+            "{length} / {chord_length} vs {ratio}"
+        );
+        // A cloud bulging outward encloses its vertex polygon and, on every
+        // chord, the circular segment the arc cuts off: r^2 (theta - sin theta)
+        // / 2.
+        let area = polyline_area(&cloud, true).expect("closed outline");
+        let polygon = polyline_area(&chords, true).expect("closed outline");
+        let segments: f64 = (0..n)
+            .map(|i| {
+                let (a, b) = (cloud[i].point, cloud[(i + 1) % n].point);
+                let chord = (b.x - a.x).hypot(b.y - a.y);
+                let radius = chord / (2.0 * (theta / 2.0).sin());
+                radius * radius * (theta - theta.sin()) / 2.0
+            })
+            .sum();
+        assert!(area > polygon, "{area} vs polygon {polygon}");
+        assert!(
+            (area - (polygon + segments)).abs() < 1e-9 * area,
+            "{area} vs {polygon} + {segments}"
+        );
     }
 }

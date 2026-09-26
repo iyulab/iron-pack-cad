@@ -67,7 +67,7 @@
 //! inside a block), and the file's handle is beside it. What the package
 //! derives -- a text's readable string ([`text`]), the value a dimension's
 //! definition points give and its label ([`dimension`]), lengths,
-//! areas and outlines ([`geom`]), the frame of each picture ([`frame`]) --
+//! areas and outlines, the frame of each picture ([`frame`]) --
 //! is computed here, not by the model or the renderer.
 //!
 //! # Licence
@@ -77,7 +77,7 @@
 pub mod dimension;
 pub mod fonts;
 pub mod frame;
-pub mod geom;
+mod geom;
 pub mod header;
 pub mod text;
 
