@@ -30,61 +30,36 @@ fn fixture_bytes(name: &str) -> Vec<u8> {
 /// it states.
 pub fn fixture(name: &str) -> (CadDatabase, Header) {
     let bytes = fixture_bytes(name);
-    let db = undxf::read_bytes(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-    (db, header_of(&bytes))
+    let (db, header) =
+        undxf::read_bytes_with_header(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+    (db, header_of(&header))
 }
 
-/// The variables an ASCII DXF's HEADER section states, as a [`Header`]:
-/// each `$NAME` (lower-cased, without the `$`) with its value -- a number
-/// when it reads as one, a point for the 10/20/30 groups, the text
+/// The variables a DXF's HEADER section states, as a [`Header`]: each
+/// variable under its name in lower case -- a point for one written as
+/// 10/20(/30) groups, a number when its value reads as one, the text
 /// otherwise. `$ACADVER` is the header's `acadver`; `$DWGCODEPAGE` its
 /// `codepage_name`.
-fn header_of(bytes: &[u8]) -> Header {
-    let text = String::from_utf8_lossy(bytes);
-    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+fn header_of(header: &undxf::Header) -> Header {
     let mut vars = Map::new();
     vars.insert("format".into(), Value::from("dxf"));
-    let mut name: Option<String> = None;
-    let mut in_header = false;
-    for pair in lines.chunks_exact(2) {
-        let (code, value) = (pair[0], pair[1]);
-        match (code, value) {
-            ("2", "HEADER") => in_header = true,
-            ("0", "ENDSEC") if in_header => break,
-            ("9", v) if in_header => {
-                let key = v.trim_start_matches('$').to_lowercase();
-                name = Some(match key.as_str() {
-                    "dwgcodepage" => "codepage_name".to_string(),
-                    _ => key,
-                });
-            }
-            (code, v) if in_header => {
-                let Some(key) = &name else { continue };
-                let axis = match code {
-                    "10" => Some("x"),
-                    "20" => Some("y"),
-                    "30" => Some("z"),
-                    _ => None,
-                };
-                match axis {
-                    Some(axis) => {
-                        let point = vars
-                            .entry(key.clone())
-                            .or_insert_with(|| Value::Object(Map::new()));
-                        point[axis] = Value::from(v.parse::<f64>().expect("a coordinate"));
-                    }
-                    None => {
-                        let value = v
-                            .parse::<i64>()
-                            .map(Value::from)
-                            .or_else(|_| v.parse::<f64>().map(Value::from))
-                            .unwrap_or_else(|_| Value::from(v));
-                        vars.insert(key.clone(), value);
-                    }
-                }
-            }
-            _ => {}
-        }
+    for name in header.variables.keys() {
+        let key = match name.as_str() {
+            "DWGCODEPAGE" => "codepage_name".to_string(),
+            other => other.to_lowercase(),
+        };
+        let value = if let Some(p) = header.point3(name) {
+            serde_json::json!({ "x": p.x, "y": p.y, "z": p.z })
+        } else if let Some(p) = header.point2(name) {
+            serde_json::json!({ "x": p.x, "y": p.y })
+        } else if let Some(i) = header.int(name) {
+            Value::from(i)
+        } else if let Some(r) = header.real(name) {
+            Value::from(r)
+        } else {
+            Value::from(header.text(name).unwrap_or_default())
+        };
+        vars.insert(key, value);
     }
     serde_json::from_value(Value::Object(vars)).expect("the header's variables")
 }
@@ -153,8 +128,9 @@ pub fn golden(name: &str) -> (CadDatabase, Header) {
         .join("tests/golden")
         .join(name);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let db = undxf::read_bytes(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-    (db, header_of(&bytes))
+    let (db, header) =
+        undxf::read_bytes_with_header(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+    (db, header_of(&header))
 }
 
 /// Reads a golden case with its header and exports it.
