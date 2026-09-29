@@ -94,8 +94,10 @@ mod tests {
             // Windows records are UTF-16BE; Macintosh ones are single-byte.
             let text = if platform == 3 {
                 let units: Vec<u16> = bytes
-                    .chunks_exact(2)
-                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&pair| u16::from_be_bytes(pair))
                     .collect();
                 String::from_utf16_lossy(&units)
             } else {
