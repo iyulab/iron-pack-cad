@@ -623,9 +623,9 @@ dependencies = [
 
 [[package]]
 name = "undxf"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b27e6f14958d19c5fa7a8a4612351f7245cb4263a3ddfe7f9e4d1454ad388ccf"
+checksum = "742cc07817211ae0b3131ae440288c83d3acfd6559c5872bc83e5279bd5d46b4"
 dependencies = [
  "encoding_rs",
  "serde",
