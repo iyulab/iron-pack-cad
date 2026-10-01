@@ -608,11 +608,12 @@ pub fn compact_string(s: &str) -> String {
     normalize_string(s).replace(' ', "")
 }
 
-/// Writes the package for `db` into `dir` (created if needed). `header` is
-/// the drawing's [`Header`] -- the units, the extents the `Auto` crop may
-/// take, `$LUPREC` and the dimension variables a style falls back on;
-/// without one the package says its units are drawing units (`du`) and
-/// uses the format's defaults.
+/// Writes the package for `db` into `dir` (created if needed). The units are
+/// the ones `db.header` states; without them the package says its units are
+/// drawing units (`du`). `header` is the drawing's [`Header`] -- the
+/// extents the `Auto` crop may take, `$LUPREC` and the dimension variables
+/// a style falls back on; without one the package uses the format's
+/// defaults.
 ///
 /// A previous iron-pack-cad package in `dir` is cleared first -- every file its
 /// `manifest.json` listed, and the directories under `frames/` and
@@ -714,7 +715,7 @@ pub fn export_package(
         )?;
 
     // --- units and rounding -----------------------------------------------
-    let units = header.and_then(Header::units);
+    let units = db.header.units();
     let unit = units.as_ref().map_or("du".to_string(), |u| u.name.clone());
     let levels = i32::try_from(options.max_levels)
         .unwrap_or(i32::MAX)
@@ -952,7 +953,7 @@ pub fn export_package(
         shard_index: Vec::new(),
         units: json!({
             "name": unit,
-            "insunits": header.and_then(|h| h.insunits),
+            "insunits": db.header.insunits,
             "to_mm": units.as_ref().and_then(|u| u.to_mm),
             "source": if units.is_some() { "header" } else { "none" },
         }),

@@ -1,10 +1,11 @@
-//! The drawing's header: the file-level facts and header variables that give
-//! the model's numbers their meaning -- the unit a coordinate is in, the
-//! extents the file claims, the dimension variables a DIMENSION falls back
-//! on.
+//! The drawing's header: the file-level facts and header variables the
+//! package reads beyond what the model carries -- the extents the file
+//! claims, the dimension variables a DIMENSION falls back on.
 //!
-//! [`uncad_model::CadDatabase`] carries no header variables, so whoever
-//! reads the file hands them in beside it. This crate reads no files: a
+//! [`uncad_model::CadDatabase`] carries the header variables that say what
+//! its numbers mean -- the unit, `$INSUNITS`, is read from its
+//! [`header`](uncad_model::CadDatabase::header) -- and no others, so whoever
+//! reads the file hands the rest in beside it. This crate reads no files: a
 //! [`Header`] is plain data, built by the caller or deserialized from JSON
 //! whose field names are the DXF `$VARIABLE` names in lower case. The
 //! variables the package reads are typed fields; every other key the JSON
@@ -36,8 +37,6 @@ pub struct Header {
     /// The name of the code page the drawing's 8-bit strings were decoded
     /// with (`"ANSI_1252"`).
     pub codepage_name: Option<String>,
-    /// `$INSUNITS`: the drawing unit, as its code; see [`Header::units`].
-    pub insunits: Option<u16>,
     /// `$LUPREC`: decimal places of linear units.
     pub luprec: Option<u16>,
     /// `$EXTMIN`/`$EXTMAX`: the model-space extents the file stores. May be
@@ -65,14 +64,6 @@ pub struct Header {
     pub other: BTreeMap<String, Value>,
 }
 
-impl Header {
-    /// `$INSUNITS` as a unit name and a millimetre factor; `None` when the
-    /// header does not state `$INSUNITS`.
-    pub fn units(&self) -> Option<Units> {
-        self.insunits.map(Units::from_insunits)
-    }
-}
-
 /// The drawing unit a `$INSUNITS` code names -- the model's table.
 pub use uncad_model::Units;
 
@@ -93,8 +84,9 @@ mod tests {
             "extmax": null,
         });
         let header: Header = serde_json::from_value(given.clone()).unwrap();
-        assert_eq!(header.insunits, Some(4));
-        assert_eq!(header.units().unwrap().name, "mm");
+        assert_eq!(header.acadver.as_deref(), Some("AC1015"));
+        // The unit is the model's; a header that states it keeps it as given.
+        assert_eq!(header.other["insunits"], json!(4));
         assert_eq!(header.other["dimscale"], json!(2.5));
         // Written back: every given key with its value, and the typed
         // fields the input left out as null.
@@ -109,6 +101,5 @@ mod tests {
     fn an_empty_header_states_nothing() {
         let header: Header = serde_json::from_value(json!({})).unwrap();
         assert_eq!(header, Header::default());
-        assert!(header.units().is_none());
     }
 }

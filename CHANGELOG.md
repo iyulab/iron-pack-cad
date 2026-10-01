@@ -7,6 +7,13 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** the package's units are the ones the drawing's model states
+  (`CadDatabase::header`, from `uncad-model`), with or without a `Header` handed in.
+  `Header::insunits` and `Header::units` are gone; an `insunits` key in a header's JSON is
+  kept in `Header::other` and written back to `drawing.json` unchanged, as any other variable.
+
 ## [0.1.0] - 2026-09-29
 
 ### Added

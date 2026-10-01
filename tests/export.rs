@@ -108,6 +108,37 @@ fn the_package_has_every_file_and_a_profile_sized_overview() {
 }
 
 #[test]
+fn the_units_are_the_ones_the_model_states_with_or_without_a_header() {
+    let manifest_units = |db: &CadDatabase, header: Option<&iron_pack_cad::Header>, name: &str| {
+        let tmp = TempDir::new(name);
+        iron_pack_cad::export_package(db, header, &tmp.0, &ExportOptions::default())
+            .expect("exports");
+        let text = std::fs::read_to_string(tmp.0.join("manifest.json")).unwrap();
+        serde_json::from_str::<Value>(&text).unwrap()["units"].clone()
+    };
+
+    // No header handed in: the model's own unit still stands.
+    let units = manifest_units(&sample_drawing(), None, "units_no_header");
+    assert_eq!(units["name"], "mm");
+    assert_eq!(units["insunits"], 4);
+    assert_eq!(units["source"], "header");
+
+    // A header stating another code does not override the model's.
+    let header: iron_pack_cad::Header =
+        serde_json::from_value(serde_json::json!({ "insunits": 1 })).unwrap();
+    let units = manifest_units(&sample_drawing(), Some(&header), "units_header");
+    assert_eq!(units["name"], "mm");
+
+    // A model stating none is drawing units, not a guess.
+    let mut db = sample_drawing();
+    db.header.insunits = None;
+    let units = manifest_units(&db, Some(&sample_header()), "units_none");
+    assert_eq!(units["name"], "du");
+    assert_eq!(units["to_mm"], Value::Null);
+    assert_eq!(units["source"], "none");
+}
+
+#[test]
 fn hidden_entities_stay_out_of_the_records() {
     let tmp = TempDir::new("hidden");
     let report = export_fixture("hidden_layers_r2000.dxf", &tmp.0, &ExportOptions::default())

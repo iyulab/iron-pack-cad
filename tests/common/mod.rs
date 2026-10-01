@@ -416,7 +416,7 @@ pub fn sample_drawing() -> CadDatabase {
         // the model as well, as a reader lists them.
         entities.push(Entity::Attrib(value));
     }
-    with_blocks(
+    let mut db = with_blocks(
         entities,
         vec![(
             "BOX",
@@ -427,16 +427,18 @@ pub fn sample_drawing() -> CadDatabase {
                 line(0x53, 0.0, 20.0, 0.0, 0.0),
             ],
         )],
-    )
+    );
+    // The file states millimetres ($INSUNITS 4).
+    db.header.insunits = Some(4);
+    db
 }
 
-/// The header a reader would give [`sample_drawing`]'s file: a DXF in
-/// millimetres.
+/// The header a reader would give [`sample_drawing`]'s file: a DXF of
+/// R2000. Its unit is the model's (`sample_drawing().header`).
 pub fn sample_header() -> Header {
     Header {
         format: Some("dxf".into()),
         acadver: Some("AC1015".into()),
-        insunits: Some(4),
         ..Default::default()
     }
 }
