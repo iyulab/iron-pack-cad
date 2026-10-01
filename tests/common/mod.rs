@@ -300,6 +300,7 @@ pub fn with_blocks(entities: Vec<Entity>, blocks: Vec<(&str, Vec<Entity>)>) -> C
     CadDatabase {
         entities,
         tables,
+        header: Default::default(),
         read_diagnostics: Default::default(),
     }
 }
