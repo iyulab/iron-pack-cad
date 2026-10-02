@@ -228,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "iron-pack-cad"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "iron-render-cad",
  "png",
@@ -241,9 +241,9 @@ dependencies = [
 
 [[package]]
 name = "iron-render-cad"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d260496490f306db82e699d50ef9ff03ab9624905e1b56e3d9eeee439563bf27"
+checksum = "06b8534895098c375df44b6f8d4e841960efcb9d78eb70745e4c5faf29502081"
 dependencies = [
  "iron-diff-cad",
  "resvg",

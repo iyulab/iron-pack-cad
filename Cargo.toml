@@ -1,6 +1,6 @@
 [package]
 name = "iron-pack-cad"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 # Minimum supported Rust version. Measured, not guessed, and checked by CI's
 # `msrv` job with exactly this toolchain -- raise the two together.
@@ -33,7 +33,7 @@ iter_over_hash_type = "warn"
 # Version dependencies, never paths: this crate must build from a standalone
 # checkout.
 uncad-model = "0.3.0"
-iron-render-cad = "0.3.0"
+iron-render-cad = "0.4.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 # The package's images are 8-bit RGB; the renderer's encoder writes RGBA.

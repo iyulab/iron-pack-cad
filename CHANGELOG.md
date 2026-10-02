@@ -7,6 +7,14 @@ bumps the minor version.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-02
+
+### Changed
+
+- **Breaking:** built on `iron-render-cad` 0.4.0, whose `Fonts` and `Crop` this crate's API
+  hands through (`ExportOptions::fonts`, `fonts::bundled`, `frame::renderer_crop`). Upgrade
+  them together. The package is drawn on the renderer's light page, so its files are unchanged.
+
 ## [0.2.0] - 2026-10-02
 
 ### Changed
