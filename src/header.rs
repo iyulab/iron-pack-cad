@@ -2,10 +2,10 @@
 //! package reads beyond what the model carries -- the extents the file
 //! claims, the dimension variables a DIMENSION falls back on.
 //!
-//! [`uncad_model::CadDatabase`] carries the header variables that say what
-//! its numbers mean -- the unit, `$INSUNITS`, is read from its
-//! [`header`](uncad_model::CadDatabase::header) -- and no others, so whoever
-//! reads the file hands the rest in beside it. This crate reads no files: a
+//! [`uncad_model::CadDatabase`] carries only the few header variables its
+//! [`header`](uncad_model::CadDatabase::header) defines -- the unit,
+//! `$INSUNITS`, is read from there -- so whoever reads the file hands the
+//! rest in beside it. This crate reads no files: a
 //! [`Header`] is plain data, built by the caller or deserialized from JSON
 //! whose field names are the DXF `$VARIABLE` names in lower case. The
 //! variables the package reads are typed fields; every other key the JSON
