@@ -7,11 +7,19 @@ bumps the minor version.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-04
+
 ### Added
 
 - The text a MULTILEADER points out is a text record (`kind` `MULTILEADER`, under the
   multileader's ID), placed where the picture draws it -- the picture draws a multileader's text
   now, and every text it draws has its record.
+
+### Changed
+
+- Built on `uncad-model` 0.4.0 (a multileader's line type and content; the header's drawing
+  identifiers) and `iron-render-cad` 0.5.0, so a package draws and records what a multileader
+  points out.
 
 ## [0.3.0] - 2026-10-02
 
