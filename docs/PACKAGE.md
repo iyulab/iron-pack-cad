@@ -238,7 +238,7 @@ Every record carries `id`, `handle`, `layer`, `bbox`, `tiles` (the tile ids
 it is on) and `px` (image id to pixel box, for the overview, frame overviews
 and tiles).
 
-**Texts** (`texts.json`): TEXT, MTEXT, ATTRIB and TOLERANCE, block contents
+**Texts** (`texts.json`): TEXT, MTEXT, ATTRIB, TOLERANCE and the text a MULTILEADER points out (`kind` `MULTILEADER`, under the multileader's ID), block contents
 included. `text` is the readable string with format codes decoded; `raw` is
 the string as written, when it differs. Each record carries `kind`, `tag`
 (attributes), `height`, `rotation_deg` (the orientation a reader sees),

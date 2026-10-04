@@ -1070,3 +1070,54 @@ fn an_ellipse_whose_parameters_are_equal_is_the_whole_ellipse() {
     let geometry = records(&tmp.0, "geometry");
     assert_eq!(geometry[0]["area"], 157.079632679, "{:?}", geometry[0]);
 }
+
+/// The text a multileader points out is drawn, so it is a text record --
+/// under the multileader's ID, with its kind, as every drawn text has one.
+#[test]
+fn a_multileader_text_is_a_text_record_under_the_multileaders_id() {
+    use uncad_model::model::{
+        Dogleg, LeaderLineType, LeaderRoot, MTextAttachment, MultiLeaderContent, MultiLeaderEntity,
+        MultiLeaderText, Point3D,
+    };
+    let p = |x: f64, y: f64| Point3D { x, y, z: 0.0 };
+    let leader = Entity::MultiLeader(MultiLeaderEntity {
+        common: common(0x20),
+        leaders: vec![LeaderRoot {
+            lines: vec![vec![p(0.0, 0.0)]],
+            last_point: Some(p(10.0, 5.0)),
+            dogleg: Some(Dogleg {
+                direction: p(1.0, 0.0),
+                length: 2.0,
+            }),
+        }],
+        line_type: Some(LeaderLineType::Straight),
+        content: Some(MultiLeaderContent::MText(MultiLeaderText {
+            text: r"%%c10 THRU".to_string(),
+            style_name: Ref::Absent,
+            location: p(12.5, 6.0),
+            direction: p(1.0, 0.0),
+            extrusion: Point3D {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            height: 2.5,
+            rotation: 0.0,
+            width: 0.0,
+            scale: 1.0,
+            attachment: Some(MTextAttachment::MiddleLeft),
+        })),
+    });
+    let db = model_space(vec![line(0x10, 0.0, 0.0, 100.0, 0.0), leader]);
+    let tmp = TempDir::new("multileader-text");
+    export_db(&db, &tmp.0, &ExportOptions::default()).expect("exports");
+    let texts = records(&tmp.0, "texts");
+    let note = by_handle(&texts, "20");
+    assert_eq!(note["kind"], "MULTILEADER", "{note}");
+    assert!(
+        note["text"]
+            .as_str()
+            .is_some_and(|t| t.ends_with("10 THRU")),
+        "{note}"
+    );
+}

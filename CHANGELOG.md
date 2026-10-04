@@ -7,6 +7,12 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- The text a MULTILEADER points out is a text record (`kind` `MULTILEADER`, under the
+  multileader's ID), placed where the picture draws it -- the picture draws a multileader's text
+  now, and every text it draws has its record.
+
 ## [0.3.0] - 2026-10-02
 
 ### Changed

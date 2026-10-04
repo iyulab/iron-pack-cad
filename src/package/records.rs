@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use iron_render_cad::TextBox;
 use serde_json::{json, Map, Value};
 use uncad_model::model::{
-    AttribEntity, Confidence, Entity, EntityCommon, EntityId, HorizontalJustification, Point2D,
-    Point3D, Ref, VerticalJustification,
+    AttribEntity, Confidence, Entity, EntityCommon, EntityId, HorizontalJustification,
+    MultiLeaderContent, Point2D, Point3D, Ref, VerticalJustification,
 };
 use uncad_model::tables::BlockRecord;
 use uncad_model::{Affine2, Tables};
@@ -432,6 +432,32 @@ fn place(index: &mut PathIndex<'_>, b: &TextBox) -> Option<PlacedText> {
             style: &m.style_name,
             tag: None,
         },
+        // The text a multileader points out, placed in world coordinates as
+        // the renderer draws it: its x axis the stated direction, or the
+        // stated rotation when there is none.
+        Located::Entity(Entity::MultiLeader(m)) => {
+            let Some(MultiLeaderContent::MText(t)) = &m.content else {
+                return None;
+            };
+            Leaf {
+                kind: "MULTILEADER",
+                raw: &t.text,
+                text: decode_mtext(&t.text).plain,
+                base: Point2D {
+                    x: t.location.x,
+                    y: t.location.y,
+                },
+                plane: Affine2::IDENTITY,
+                height: t.height,
+                rotation: if t.direction.x != 0.0 || t.direction.y != 0.0 {
+                    t.direction.y.atan2(t.direction.x)
+                } else {
+                    t.rotation
+                },
+                style: &t.style_name,
+                tag: None,
+            }
+        }
         Located::Entity(Entity::Tolerance(t)) => Leaf {
             kind: "TOLERANCE",
             raw: &t.text_value,
