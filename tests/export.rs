@@ -1102,6 +1102,7 @@ fn a_multileader_text_is_a_text_record_under_the_multileaders_id() {
                 z: 1.0,
             },
             height: 2.5,
+            line_spacing_factor: 1.0,
             rotation: 0.0,
             width: 0.0,
             scale: 1.0,
