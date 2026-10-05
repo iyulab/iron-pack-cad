@@ -29,7 +29,7 @@ use crate::frame::{
 };
 use crate::geom;
 use crate::header::{Header, Units};
-use crate::text::decode_text;
+use crate::text::{decode_mtext, decode_text};
 
 pub use output::WrittenFile;
 use output::{clear_previous_package, sha256_hex, to_rgb, Writer};
@@ -938,6 +938,15 @@ pub fn export_package(
                 }
             }
         }
+        // A table cell's text leads to the table, whose record says which
+        // row and column it is in.
+        if let Some(Value::Array(cells)) = r.value.get("table").and_then(|t| t.get("cells")) {
+            for cell in cells {
+                if let Some(Value::String(s)) = cell.get("text") {
+                    index(s, &r.id);
+                }
+            }
+        }
     }
     let frame_reports: Vec<FrameReport> = plan.frames.iter().map(|b| b.report.clone()).collect();
     let written_total: usize = frame_reports
@@ -976,9 +985,10 @@ pub fn export_package(
     writer.write_records("dimensions", "dimension", &dim_records)?;
     writer.write_records("geometry", "geometry", &geo_records)?;
     writer.write_records("regions", "region", &region_records)?;
-    // The INSERT instances are records like any other kind: they go through
-    // the same shard rule and land in `shard_index`. The definitions -- a
-    // table, not a per-entity record -- are in drawing.json.
+    // The block instances (INSERTs and tables) are records like any other
+    // kind: they go through the same shard rule and land in `shard_index`.
+    // The definitions -- a table, not a per-entity record -- are in
+    // drawing.json.
     writer.write_records("blocks", "blocks", &block_records)?;
     writer.write_json(
         "strings.json",
@@ -1787,8 +1797,9 @@ fn label_regions(
     }
 }
 
-/// The block instance records -- every shown INSERT that measured an
-/// extent, with its attributes -- and the instances of each block, by name.
+/// The block instance records -- every shown INSERT and table (ACAD_TABLE)
+/// that measured an extent, an INSERT with its attributes and a table with
+/// its cells -- and the instances of each block, by name.
 fn block_records(
     shown: &[(&Part, &Entity)],
     extent_of: &BTreeMap<EntityId, Rect>,
@@ -1798,48 +1809,123 @@ fn block_records(
     let mut instances: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut out = Vec::new();
     for (part, e) in shown {
-        let Entity::Insert(i) = e else { continue };
+        // Where the reference is -- the block's base point, placed -- and
+        // what only its kind carries.
+        let (common, block, placement, at, rotation, scale, own) = match e {
+            Entity::Insert(i) => {
+                let attribs: Map<String, Value> = i
+                    .attribs
+                    .iter()
+                    .filter(|a| !a.tag.is_empty())
+                    .map(|a| (a.tag.clone(), json!(decode_text(&a.text).plain)))
+                    .collect();
+                // The insertion point, taken to the world through the
+                // reference's own plane.
+                let placement = geom::insert_to_world(i, tables);
+                let base = geom::block_base_point(i, tables);
+                let at = placement.apply(uncad_model::Point2D {
+                    x: base.x,
+                    y: base.y,
+                });
+                (
+                    &i.common,
+                    &i.block_name,
+                    placement,
+                    at,
+                    i.rotation,
+                    i.scale,
+                    ("attribs", Value::Object(attribs)),
+                )
+            }
+            // A table's block is placed as though based at the origin (see
+            // the renderer's table placement), so it is at its insertion
+            // point.
+            Entity::AcadTable(t) => {
+                let at = uncad_model::Point2D {
+                    x: t.insertion_point.x,
+                    y: t.insertion_point.y,
+                };
+                let placement =
+                    uncad_model::Affine2::placement(at, t.scale.x, t.scale.y, t.rotation);
+                (
+                    &t.common,
+                    &t.block_name,
+                    placement,
+                    at,
+                    t.rotation,
+                    t.scale,
+                    ("table", table_value(t)),
+                )
+            }
+            _ => continue,
+        };
         let Some(bbox) = extent_of.get(&part.id).copied() else {
             continue;
         };
         let id = part.id.value().to_string();
         instances
-            .entry(i.block_name.name().to_string())
+            .entry(block.name().to_string())
             .or_default()
             .push(id.clone());
-        let attribs: Map<String, Value> = i
-            .attribs
-            .iter()
-            .filter(|a| !a.tag.is_empty())
-            .map(|a| (a.tag.clone(), json!(decode_text(&a.text).plain)))
-            .collect();
-        // Where the reference is: the block's base point, placed -- the
-        // insertion point, taken to the world through the reference's own
-        // plane.
-        let placement = geom::insert_to_world(i, tables);
-        let base = geom::block_base_point(i, tables);
-        let at = placement.apply(uncad_model::Point2D {
-            x: base.x,
-            y: base.y,
-        });
         let mut v = Map::new();
         v.insert("id".into(), json!(id));
-        v.insert("handle".into(), handle_of(&i.common));
-        v.insert("block".into(), json!(i.block_name.name()));
-        v.insert("layer".into(), json!(layer_name(&i.common.layer)));
+        v.insert("handle".into(), handle_of(common));
+        v.insert("block".into(), json!(block.name()));
+        v.insert("layer".into(), json!(layer_name(&common.layer)));
         v.insert("at".into(), rounder.pt2(at));
         v.insert(
             "rotation_deg".into(),
-            json!(rounder.derived(i.rotation.to_degrees())),
+            json!(rounder.derived(rotation.to_degrees())),
         );
-        v.insert("scale".into(), json!([i.scale.x, i.scale.y, i.scale.z]));
+        v.insert("scale".into(), json!([scale.x, scale.y, scale.z]));
         v.insert("mirrored".into(), json!(placement.determinant() < 0.0));
-        v.insert("attribs".into(), Value::Object(attribs));
+        v.insert(own.0.into(), own.1);
         v.insert("bbox".into(), rounder.rect(&bbox));
         out.push(Record { id, bbox, value: v });
     }
     out.sort_by_cached_key(|r| id_key(&r.id));
     (out, instances)
+}
+
+/// A table's `table` value: its row and column counts and every cell with
+/// text, by row and column (0 at the top left) -- `text` readable, `raw` as
+/// written when it differs, `span` the columns and rows it covers. A cell
+/// another cell's span covers says nothing of its own and is not listed.
+/// When the drawing's reader did not read the cells, the counts and cells
+/// are `null` and `why` says so: the table's contents are unknown, which is
+/// not an empty table.
+fn table_value(t: &uncad_model::model::AcadTableEntity) -> Value {
+    let Some(grid) = &t.grid else {
+        return json!({
+            "rows": null,
+            "columns": null,
+            "cells": null,
+            "why": "the drawing's reader did not read the table's cells",
+        });
+    };
+    let mut cells = Vec::new();
+    for (row, r) in grid.rows.iter().enumerate() {
+        for (column, c) in r.cells.iter().enumerate() {
+            let Some(raw) = c.text.as_deref().filter(|_| !c.covered) else {
+                continue;
+            };
+            let text = decode_mtext(raw).plain;
+            let mut cell = Map::new();
+            cell.insert("row".into(), json!(row));
+            cell.insert("column".into(), json!(column));
+            cell.insert("text".into(), json!(text));
+            if text != raw {
+                cell.insert("raw".into(), json!(raw));
+            }
+            cell.insert("span".into(), json!([c.span_columns, c.span_rows]));
+            cells.push(Value::Object(cell));
+        }
+    }
+    json!({
+        "rows": grid.rows.len(),
+        "columns": grid.column_widths.len(),
+        "cells": cells,
+    })
 }
 
 /// `drawing.json`: the header, the units, the layers with their state and
@@ -2065,7 +2151,7 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
 
 fn readme(options: &ExportOptions) -> String {
     format!(
-        "iron-pack-cad package ({SCHEMA})\n\nReading order:\n  1. manifest.json   what is here, the crop, the images and their affines; `legend` explains the record vocabularies, `guidance` how to look something up\n  2. strings.json    find a text or a number, get record ids; shard_index turns an id into a file (compare int(id.split('/')[0]) against first_key/last_key, not the strings)\n  3. texts.json / dimensions.json / geometry.json / regions.json / blocks.json   the records (sharded above {} KB, see shard_index); blocks.json holds the INSERT instances, drawing.json the block definitions\n  4. overview.png    the whole drawing; frames/f*/overview.png and frames/f*/tiles/z*/  zoomed tiles with .json sidecars; tiles.json lists every tile, written or empty with a reason, with its size and sha256\n  5. sheets.json     paper layouts: sheet size, viewports with their scale and model window, and how a model point maps onto the sheet; sheets/<layout>/overview.png. The title and title block are paper-space texts in texts.json (`space: \"paper\"`, with a `sheet` and that sheet's pixel box)\n  6. report.json     what was left out and why\n\nAll other records are model space. drawing.json holds the header, units, layer states and block definitions; entities.json and drawing.svg (when present) are tool inputs, not for reading.\n",
+        "iron-pack-cad package ({SCHEMA})\n\nReading order:\n  1. manifest.json   what is here, the crop, the images and their affines; `legend` explains the record vocabularies, `guidance` how to look something up\n  2. strings.json    find a text or a number, get record ids; shard_index turns an id into a file (compare int(id.split('/')[0]) against first_key/last_key, not the strings)\n  3. texts.json / dimensions.json / geometry.json / regions.json / blocks.json   the records (sharded above {} KB, see shard_index); blocks.json holds the INSERT and table instances (a table with its cells by row and column), drawing.json the block definitions\n  4. overview.png    the whole drawing; frames/f*/overview.png and frames/f*/tiles/z*/  zoomed tiles with .json sidecars; tiles.json lists every tile, written or empty with a reason, with its size and sha256\n  5. sheets.json     paper layouts: sheet size, viewports with their scale and model window, and how a model point maps onto the sheet; sheets/<layout>/overview.png. The title and title block are paper-space texts in texts.json (`space: \"paper\"`, with a `sheet` and that sheet's pixel box)\n  6. report.json     what was left out and why\n\nAll other records are model space. drawing.json holds the header, units, layer states and block definitions; entities.json and drawing.svg (when present) are tool inputs, not for reading.\n",
         options.shard_kb
     )
 }

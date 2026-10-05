@@ -7,6 +7,17 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- A table (ACAD_TABLE) is a block instance in `blocks.json`: the block reference that draws it,
+  with the same placement fields and `table` in place of `attribs` -- its `rows`, `columns` and
+  `cells`, every cell with text by `row` and `column`, readable `text`, `raw` text when that
+  differs, and the `span` it covers. When the reader did not read the cells, the counts and cells
+  are `null` with a `why`, so unknown contents do not read as an empty table. Each cell's text is
+  indexed in `strings.json` to the table's record, and the table is listed among its block's
+  instances in `drawing.json`. A table had no record of its own before; the texts its block draws
+  were, and still are, text records under its ID.
+
 ## [0.4.0] - 2026-10-04
 
 ### Added

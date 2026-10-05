@@ -287,13 +287,23 @@ the id of its geometry record: `src` (its entity type), `area`, `area_unit`,
 whose anchor lies inside it and in no smaller region.
 
 **Block instances** (`blocks.json`): each INSERT with `block`, `at`,
-`rotation_deg`, `scale`, `mirrored` and `attribs` (tag to value). The block
-definitions are in `drawing.json`.
+`rotation_deg`, `scale`, `mirrored` and `attribs` (tag to value), and each
+table (ACAD_TABLE) -- the block reference that draws it -- with the same
+placement fields and `table` in place of `attribs`: `rows`, `columns` and
+`cells`, every cell with text by `row` and `column` (0 at the top left),
+its `text` readable, its `raw` text as written when that differs, and the
+`span` of columns and rows it covers. A cell another cell's span covers says
+nothing of its own and is not listed. When the drawing's reader did not read
+the table's cells, `rows`, `columns` and `cells` are `null` and `why` says
+so -- the contents are unknown, not empty. A table's cell texts are indexed
+in `strings.json` to the table's record; the texts its block draws are also
+text records, under the table's ID. The block definitions are in
+`drawing.json`.
 
 ## String index
 
 `strings.json` maps normalized strings to record ids: every text, every
-dimension label and every attribute value. Normalization is Unicode NFKC
+dimension label, every attribute value and every table cell's text. Normalization is Unicode NFKC
 (so `㎡` becomes `m2` and full-width digits become ASCII), the fraction
 slash as `/`, lower-casing and whitespace collapsed to single spaces. Each
 string is also indexed with all spaces removed, so `32.5 m2` and `32.5m2`
