@@ -7,6 +7,8 @@ bumps the minor version.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-05
+
 ### Added
 
 - A table (ACAD_TABLE) is a block instance in `blocks.json`: the block reference that draws it,
@@ -17,6 +19,10 @@ bumps the minor version.
   indexed in `strings.json` to the table's record, and the table is listed among its block's
   instances in `drawing.json`. A table had no record of its own before; the texts its block draws
   were, and still are, text records under its ID.
+
+### Changed
+
+- Built on `uncad-model` 0.5.0, `iron-render-cad` 0.6.0 and `undxf` 0.4.0.
 
 ## [0.4.0] - 2026-10-04
 
