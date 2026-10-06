@@ -1091,6 +1091,7 @@ fn a_multileader_text_is_a_text_record_under_the_multileaders_id() {
             }),
         }],
         line_type: Some(LeaderLineType::Straight),
+        arrow_size: None,
         content: Some(MultiLeaderContent::MText(MultiLeaderText {
             text: r"%%c10 THRU".to_string(),
             style_name: Ref::Absent,
