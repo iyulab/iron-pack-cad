@@ -36,6 +36,7 @@ fn parts_list(grid: Option<TableGrid>) -> CadDatabase {
         },
         rotation: 0.0,
         grid,
+        flow: None,
     });
     // What the table's block draws: its frame and its texts, from the
     // origin.
