@@ -7,6 +7,12 @@ bumps the minor version.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-07
+
+### Changed
+
+- Built on `iron-render-cad` 0.9.0, `uncad-model` 0.8.0 and `undxf` 0.7.0.
+
 ## [0.7.0] - 2026-10-07
 
 ### Changed
