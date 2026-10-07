@@ -285,6 +285,7 @@ pub fn with_blocks(entities: Vec<Entity>, blocks: Vec<(&str, Vec<Entity>)>) -> C
             base_point: Default::default(),
             name: "*Model_Space".into(),
             entities: entities.clone(),
+            external_reference: None,
         },
     );
     for (name, block) in blocks {
@@ -294,6 +295,7 @@ pub fn with_blocks(entities: Vec<Entity>, blocks: Vec<(&str, Vec<Entity>)>) -> C
                 base_point: Default::default(),
                 name: name.into(),
                 entities: block,
+                external_reference: None,
             },
         );
     }

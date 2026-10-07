@@ -191,6 +191,7 @@ fn colliding_layout_names() -> CadDatabase {
                 base_point: Default::default(),
                 name: block.clone(),
                 entities: paper,
+                external_reference: None,
             },
         );
         db.tables.layouts.insert(
@@ -367,6 +368,7 @@ fn add_paper_space(db: &mut CadDatabase, entities: Vec<Entity>) {
             base_point: Default::default(),
             name: "*Paper_Space".into(),
             entities,
+            external_reference: None,
         },
     );
 }
