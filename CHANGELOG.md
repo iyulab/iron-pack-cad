@@ -7,6 +7,10 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- `report.json` lists `edgeless`: the 3DSOLIDs, REGIONs and meshes the overview could not draw because they have no edge (a whole torus or sphere, an empty body), by reference ID. Such a body was counted as an unsupported type before.
+
 ### Fixed
 
 - A sheet whose layout states no paper unit reports `units: "du"`, as a drawing that states no unit does, instead of `mm`. The renderer no longer sizes such a sheet -- or one in pixels -- from its plot settings either, so without usable limits its `rect_source` is `entities`, not `paper_size`.

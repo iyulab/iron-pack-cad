@@ -1202,6 +1202,7 @@ pub fn export_package(
         "empty_blocks": scene.empty_blocks,
         "unresolved_block_refs": scene.unresolved_block_refs.iter().map(|id| id.value()).collect::<Vec<_>>(),
         "undefined_arcs": scene.undefined_arcs.iter().map(|id| id.value()).collect::<Vec<_>>(),
+        "edgeless": scene.edgeless.iter().map(|id| id.value()).collect::<Vec<_>>(),
         "limits": limits_json(limits, &top),
         "warnings": warnings,
     });
