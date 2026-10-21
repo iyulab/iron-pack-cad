@@ -54,7 +54,8 @@ pub struct SheetReport {
     pub name: String,
     pub tab_order: i32,
     pub block: String,
-    /// `mm`, `in` or `px` -- the layout's paper unit.
+    /// `mm`, `in` or `px` -- the layout's paper unit -- or `du` when the
+    /// layout states none.
     pub units: String,
     /// The plot settings, when the file has a LAYOUT for this sheet.
     pub plot: Option<PlotSettings>,
@@ -132,12 +133,14 @@ fn sheet_dir(name: &str, used: &mut BTreeSet<String>) -> String {
     candidate
 }
 
-/// The unit a layout's paper is set up in.
+/// The unit a layout's paper is set up in: `du` when the layout does not
+/// say, as for a drawing that states no unit.
 fn paper_units(plot: &PlotSettings) -> &'static str {
     match plot.paper_units {
+        Some(PlotPaperUnits::Millimeters) => "mm",
         Some(PlotPaperUnits::Inches) => "in",
         Some(PlotPaperUnits::Pixels) => "px",
-        _ => "mm",
+        None => "du",
     }
 }
 
@@ -400,6 +403,33 @@ pub(crate) fn export_sheets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paper_unit_the_layout_does_not_state_is_du() {
+        let mut plot = PlotSettings {
+            paper_name: String::new(),
+            paper_width: 297.0,
+            paper_height: 210.0,
+            margin_left: 0.0,
+            margin_bottom: 0.0,
+            margin_right: 0.0,
+            margin_top: 0.0,
+            plot_origin: uncad_model::model::Point2D { x: 0.0, y: 0.0 },
+            paper_units: None,
+            rotation: None,
+            scale_numerator: 1.0,
+            scale_denominator: 1.0,
+        };
+        assert_eq!(paper_units(&plot), "du");
+        for (unit, name) in [
+            (PlotPaperUnits::Millimeters, "mm"),
+            (PlotPaperUnits::Inches, "in"),
+            (PlotPaperUnits::Pixels, "px"),
+        ] {
+            plot.paper_units = Some(unit);
+            assert_eq!(paper_units(&plot), name);
+        }
+    }
 
     #[test]
     fn sheet_directories_are_unique() {

@@ -7,6 +7,10 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Fixed
+
+- A sheet whose layout states no paper unit reports `units: "du"`, as a drawing that states no unit does, instead of `mm`. The renderer no longer sizes such a sheet -- or one in pixels -- from its plot settings either, so without usable limits its `rect_source` is `entities`, not `paper_size`.
+
 ## [0.9.0] - 2026-10-07
 
 ### Changed

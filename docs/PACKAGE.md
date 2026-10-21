@@ -226,8 +226,10 @@ are never truncated.
 Each paper layout is drawn whole, fitted to the profile without padding, as
 `sheets/<layout>/overview.png` with image id `sheet:<layout>`. The model is
 composited through the layout's viewports. `sheets.json` gives, per sheet,
-its paper rectangle in paper units and where it came from (`layout_limits`,
-`paper_size`, `stated`, `entities` or `empty`), the plot settings, and each
+its paper unit (`mm`, `in`, `px`, or `du` when the layout states none), its
+paper rectangle in paper units and where it came from (`layout_limits`,
+`paper_size` -- never for a paper in `px` or `du`, which the plot settings
+cannot size -- `stated`, `entities` or `empty`), the plot settings, and each
 viewport: its frame, scale, twist, frozen layers, whether the model was
 drawn through it (`composited`; the layout's overall frame never is), the
 model window, and `model_to_paper`, the affine the model was drawn through.
