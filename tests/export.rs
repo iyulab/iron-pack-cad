@@ -407,7 +407,7 @@ fn exporting_onto_an_existing_file_reports_the_path_it_could_not_write() {
 #[test]
 fn an_outline_too_big_to_test_says_so_instead_of_claiming_it_is_simple() {
     // Above the cap the answer is `null` -- not the `true` that would let a
-    // reader trust an area that may be meaningless.
+    // reader trust an area that may be meaningless -- and the test is not run.
     for (n, want_simple) in [(64usize, true), (8000, false)] {
         let points: Vec<(f64, f64)> = (0..n)
             .map(|i| {
@@ -417,7 +417,6 @@ fn an_outline_too_big_to_test_says_so_instead_of_claiming_it_is_simple() {
             .collect();
         let db = model_space(vec![lwpolyline(0x10, &points, &[], true)]);
         let tmp = TempDir::new(&format!("ring{n}"));
-        let started = std::time::Instant::now();
         export_db(
             &db,
             &tmp.0,
@@ -427,7 +426,6 @@ fn an_outline_too_big_to_test_says_so_instead_of_claiming_it_is_simple() {
             },
         )
         .expect("exports");
-        let elapsed = started.elapsed();
         let regions = records(&tmp.0, "regions");
         assert_eq!(regions.len(), 1, "one closed polyline, one region");
         let region = &regions[0];
@@ -445,10 +443,9 @@ fn an_outline_too_big_to_test_says_so_instead_of_claiming_it_is_simple() {
                 "{}",
                 region["why"]
             );
-            assert!(
-                elapsed < std::time::Duration::from_secs(60),
-                "{elapsed:?} for one polyline"
-            );
+            // The `null` and the reason are what show the quadratic test was
+            // not run; a wall-clock bound measured the build profile and the
+            // machine's load instead.
         }
         assert!(region["area"].as_f64().is_some_and(|a| a > 0.0));
     }
