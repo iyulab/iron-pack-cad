@@ -217,9 +217,9 @@ checksum = "65b27460c2c92b037f3f94c538ed9a3342f3fdf923606781629ccb35f82d042a"
 
 [[package]]
 name = "iron-diff-cad"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c906f9cfd93b3d554e1eef64c69e2d1782417b13958b764736c929289b55bb10"
+checksum = "9e3cf1ef1dee082ed9fe5b01ce32235a60e97aeedb96698a25a4285b4234fe2e"
 dependencies = [
  "serde",
  "serde_json",
@@ -228,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "iron-pack-cad"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "iron-render-cad",
  "png",
@@ -241,9 +241,9 @@ dependencies = [
 
 [[package]]
 name = "iron-render-cad"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdffc06bd9e2cbc697096ace0281aaf04adb237d1b31fd26c7b3890462909f32"
+checksum = "72df82272e71b83028feeae6bac487381c59908647306b924154c0fcb34553d0"
 dependencies = [
  "iron-diff-cad",
  "resvg",
@@ -623,9 +623,9 @@ dependencies = [
 
 [[package]]
 name = "undxf"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22b59b75114b7591fdb52ece0873956ecbcdccfcc4475f7aedbc9f2dd16649b8"
+checksum = "716efd1ecc4669fcc0506a9b588c3ad38ca52e6903c098ff3399c02a74d427ac"
 dependencies = [
  "encoding_rs",
  "serde",

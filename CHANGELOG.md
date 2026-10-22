@@ -7,9 +7,15 @@ bumps the minor version.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-22
+
 ### Added
 
 - `report.json` lists `edgeless`: the 3DSOLIDs, REGIONs and meshes the overview could not draw because they have no edge (a whole torus or sphere, an empty body), by reference ID. Such a body was counted as an unsupported type before.
+
+### Changed
+
+- Built on `iron-render-cad` 0.11.0 and `undxf` 0.8.1.
 
 ### Fixed
 
