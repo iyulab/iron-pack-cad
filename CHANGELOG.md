@@ -7,6 +7,12 @@ bumps the minor version.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-30
+
+### Changed
+
+- Built on `iron-render-cad` 0.14.0.
+
 ## [0.12.0] - 2026-10-30
 
 ### Changed
