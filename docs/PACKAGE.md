@@ -61,6 +61,14 @@ of the model family the package is for, not a free-form option.
 | `claude-hires` | 2576 px | 4784 | 1932 px | 392 px | 28 px |
 | `openai-patch` | 2048 px | 4096 | 1600 px | 320 px | 32 px |
 
+**Send what the question needs.** A package can hold hundreds of tiles, but a
+model's API may apply a stricter per-image size limit once a single request
+carries more than a set number of images (the Claude API does above 20 images
+and rejects the request with an `invalid_request_error` that names the limit).
+The profile's sizes do not account for that: pick the overview and the frames
+or tiles the question is about, and check the provider's current image limits
+before sending many at once.
+
 ## Files
 
 ```text

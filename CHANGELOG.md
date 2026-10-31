@@ -7,6 +7,11 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- The package documentation notes that a request carrying many images can meet a stricter per-image size limit than the profile's
+  sizes assume, and says to send the overview and the tiles the question needs.
+
 ## [0.13.0] - 2026-10-30
 
 ### Changed
