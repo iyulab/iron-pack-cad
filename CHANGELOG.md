@@ -7,6 +7,18 @@ bumps the minor version.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-02
+
+### Added
+
+- The package documentation notes that a request carrying many images can meet a stricter per-image size limit than the profile's
+  sizes assume, and says to send the overview and the tiles the question needs.
+
+### Changed
+
+- Built on `iron-render-cad` 0.15.0, `uncad-model` 0.11.0 and `undxf` 0.10.0. The model's types are part of this
+  crate's interface, so a program that uses this crate with `uncad-model` moves both to the new version together.
+
 ### Fixed
 
 - **Breaking in what it answers:** a dimension record's `delta` is now the stored measurement minus the points'
@@ -15,11 +27,6 @@ bumps the minor version.
   for points 120 apart, and its `delta` was reported as 2928 -- a disagreement the drawing does not have. Such a
   dimension now has a `delta` of 0, and one whose stored number is off by more than the factor still reports the
   difference. An angle is not scaled. `measurement_from_points` stays the unscaled length of the points.
-
-### Added
-
-- The package documentation notes that a request carrying many images can meet a stricter per-image size limit than the profile's
-  sizes assume, and says to send the overview and the tiles the question needs.
 
 ## [0.13.0] - 2026-10-30
 
