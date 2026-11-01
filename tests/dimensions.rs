@@ -53,16 +53,16 @@ fn aligned(id: u64, stored: Option<f64>) -> Entity {
 #[test]
 fn the_fixture_dimension_reads_its_style_and_its_cached_label() {
     // One LINEAR dimension 10 units long under $DIMLFAC 12 (the STANDARD
-    // style says 12 too), storing act_measurement 10.0: the cached label
-    // AutoCAD would show is "120", and a label formatted here from the same
-    // style says the same.
+    // style says 12 too), storing act_measurement 120.0 -- the number its
+    // label shows, as a file written by AutoCAD stores it: the cached label
+    // is "120", and a label formatted here from the same style says the same.
     let (db, header) = fixture("dimlfac12_r2000.dxf");
     let dims = dimensions(&db);
     assert_eq!(dims.len(), 1);
     let d = dims[0];
     assert_eq!(d.kind, Some(DimensionKind::Rotated));
     assert_eq!(measurement_from_points(d), Some(10.0));
-    assert_eq!(stored_measurement(d.measurement, d.kind), Some(10.0));
+    assert_eq!(stored_measurement(d.measurement, d.kind), Some(120.0));
     let style = EffectiveStyle::resolve(
         d.style_name
             .resolved()
@@ -89,12 +89,33 @@ fn the_fixture_dimension_reads_its_style_and_its_cached_label() {
     let tmp = TempDir::new("dimlfac12");
     export_fixture("dimlfac12_r2000.dxf", &tmp.0, &ExportOptions::default()).expect("exports");
     let record = &records(&tmp.0, "dimensions")[0];
-    assert_eq!(record["measurement_stored"], 10.0);
+    assert_eq!(record["measurement_stored"], 120.0);
     assert_eq!(record["measurement_from_points"], 10.0);
+    // The stored number already carries the style's factor, so it agrees.
     assert_eq!(record["delta"], 0.0);
     assert_eq!(record["dimlfac"], 12.0);
     assert_eq!(record["display"], "120");
     assert_eq!(record["display_source"], "cached_block");
+}
+
+/// A stored value that differs from the points' length times the factor is
+/// still reported as a disagreement -- the factor explains the scale, not a
+/// stale number.
+#[test]
+fn a_stored_value_off_by_more_than_the_factor_is_still_a_delta() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dimlfac12_r2000.dxf");
+    let text = std::fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+    assert!(text.contains(" 42\n120.0\n"));
+    let stale = text.replace(" 42\n120.0\n", " 42\n130.0\n");
+    let (db, header) = fixture_from_bytes("dimlfac12 with a stale value", stale.as_bytes());
+    let tmp = TempDir::new("dimlfac_stale");
+    iron_pack_cad::export_package(&db, Some(&header), &tmp.0, &ExportOptions::default())
+        .expect("exports");
+    let record = &records(&tmp.0, "dimensions")[0];
+    assert_eq!(record["measurement_stored"], 130.0);
+    assert_eq!(record["measurement_from_points"], 10.0);
+    assert_eq!(record["delta"], 10.0);
 }
 
 #[test]

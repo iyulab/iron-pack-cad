@@ -7,6 +7,15 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Breaking in what it answers:** a dimension record's `delta` is now the stored measurement minus the points'
+  length *scaled by the style's length factor* (`dimlfac`), the way the label is. A file stores the number its
+  label shows, so a dimension drawn in inches under a style that shows millimetres (`dimlfac` 25.4) stores 3048
+  for points 120 apart, and its `delta` was reported as 2928 -- a disagreement the drawing does not have. Such a
+  dimension now has a `delta` of 0, and one whose stored number is off by more than the factor still reports the
+  difference. An angle is not scaled. `measurement_from_points` stays the unscaled length of the points.
+
 ### Added
 
 - The package documentation notes that a request carrying many images can meet a stricter per-image size limit than the profile's

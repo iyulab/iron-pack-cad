@@ -29,9 +29,14 @@ fn fixture_bytes(name: &str) -> Vec<u8> {
 /// One of `tests/fixtures`, read into the model, with the header variables
 /// it states.
 pub fn fixture(name: &str) -> (CadDatabase, Header) {
-    let bytes = fixture_bytes(name);
+    fixture_from_bytes(name, &fixture_bytes(name))
+}
+
+/// A DXF given as bytes (a fixture edited by a test), read into the model
+/// with the header variables it states.
+pub fn fixture_from_bytes(name: &str, bytes: &[u8]) -> (CadDatabase, Header) {
     let (db, header) =
-        undxf::read_bytes_with_header(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        undxf::read_bytes_with_header(bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
     (db, header_of(&header))
 }
 

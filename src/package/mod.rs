@@ -1336,10 +1336,6 @@ fn dimension_records(
         let angular = is_angular(d.kind);
         let from_points = measurement_from_points(d);
         let stored = stored_measurement(d.measurement, d.kind);
-        let delta = match (stored, from_points) {
-            (Some(m), Some(p)) => Some(rounder.derived(m - p)),
-            _ => None,
-        };
         let style_record = d
             .style_name
             .resolved()
@@ -1349,6 +1345,17 @@ fn dimension_records(
             d.style_overrides.as_deref().unwrap_or_default(),
         );
         let style = EffectiveStyle::of(own.as_ref(), defaults);
+        // The number a file stores is the one its label shows, so the style's
+        // length factor (DIMLFAC) is already in it; the points give the
+        // unscaled length. The difference is taken after the same scaling
+        // the label gets -- an angle is not scaled.
+        let delta = match (stored, from_points) {
+            (Some(m), Some(p)) => {
+                let scaled = if angular { p } else { p * style.dimlfac };
+                Some(rounder.derived(m - scaled))
+            }
+            _ => None,
+        };
         let shown_text = display_text(
             d,
             &style,
@@ -2093,7 +2100,7 @@ fn manifest_json(m: ManifestInput<'_, '_>) -> Value {
         },
         "text_records": "texts carry `bbox_confidence` (`measured` from the glyph outlines as the renderer laid them out, or `estimated` at 0.6 em per character) and no `confidence`; block instances carry neither. `space` is `model` or `paper`; a paper text names its `sheet` and is measured in that layout's paper units.",
         "ids": "a record's `id` is the drawing's entity reference ID in decimal (a path of them for a text inside a block); its `handle` is the file's own handle for the entity, in hexadecimal, when it came from a file",
-        "dimension_values": "a dimension carries two values, as facts: `measurement_stored`, what the file stores (act_measurement; degrees for an angle), and `measurement_from_points`, what its definition points give; `delta` is stored minus from_points when both exist. They can disagree -- a file may carry a stale or foreign value -- and neither is chosen over the other here; a dimension carries no `confidence`",
+        "dimension_values": "a dimension carries two values, as facts: `measurement_stored`, what the file stores (act_measurement; degrees for an angle), and `measurement_from_points`, what its definition points give; `delta` is stored minus from_points when both exist, after the length factor the style states (`dimlfac`) has scaled the points' length -- the stored number is the one the label shows -- so a dimension whose label is the points' length times its style's factor has a delta of 0; an angle is not scaled. They can disagree -- a file may carry a stale or foreign value -- and neither is chosen over the other here; a dimension carries no `confidence`",
         "display_source": ["user_text", "cached_block", "formatted", "suppressed", "none"],
         "display_value_from": "when the label holds a number this package formatted (`formatted`, or `user_text` with `<>`), `points` or `stored` says which of the two values it is: the points' value, as a CAD application draws it, and the stored one only when the points give none",
         "arc_symbol": "an arc-length dimension carries its style's `DIMARCSYM` as `BEFORE_TEXT`, `ABOVE_TEXT` or `SUPPRESSED`, or null when the style does not state it; the symbol is drawn as geometry beside the label, never part of `display`",
