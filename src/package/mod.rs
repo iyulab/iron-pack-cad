@@ -793,25 +793,7 @@ pub fn export_package(
         .map(|f| &f.report.overview)
         .filter(|ov| ov.id != "ov")
         .collect();
-    let mut tile_images: Vec<ImageInfo> = Vec::new();
-    for build in &plan.frames {
-        for level in &build.report.levels {
-            for tile in build.tiles.iter().filter(|t| t.z == level.z && !t.empty) {
-                let png = format!(
-                    "frames/{}/tiles/z{}/r{:02}_c{:02}.png",
-                    tile.frame, tile.z, tile.row, tile.col
-                );
-                tile_images.push(ImageInfo::new(
-                    &tile.id,
-                    &png,
-                    tile.world,
-                    level.ppu,
-                    tile.width,
-                    tile.height,
-                ));
-            }
-        }
-    }
+    let tile_images = planned_tile_images(&plan);
     // Every image but the overview, drawn on as many threads as there are:
     // each is a window of the one walk, holding only the parts that reach
     // it.
@@ -865,22 +847,7 @@ pub fn export_package(
     // pixel. They are kept out of `text_records` proper because that list
     // is what the tile sidecars are built from, and a paper box in paper
     // units would otherwise be matched against model tiles.
-    let paper_text_records: Vec<Record> = sheets
-        .texts
-        .iter()
-        .map(|(t, sheet)| {
-            let report = &sheets.reports[*sheet];
-            let mut r = text_record(t, &rounder, "paper", Some(&report.name), measured_why);
-            let mut px = Map::new();
-            px.insert(
-                report.overview.id.clone(),
-                json!(report.overview.px_box(&t.bbox)),
-            );
-            r.value.insert("tiles".into(), json!([]));
-            r.value.insert("px".into(), Value::Object(px));
-            r
-        })
-        .collect();
+    let paper_text_records = paper_text_records(&sheets, &rounder, measured_why);
     // Model and paper texts in one record file, ordered by id like every
     // other kind, so `shard_index` resolves either of them.
     let mut written_texts: Vec<Record> = text_records
@@ -910,44 +877,7 @@ pub fn export_package(
     let block_records: Vec<Record> = block_records.into_iter().map(&with_images).collect();
 
     // --- strings -------------------------------------------------------------
-    let mut strings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut index = |text: &str, id: &str| {
-        let key = normalize_string(text);
-        if key.is_empty() {
-            return;
-        }
-        let compact = compact_string(text);
-        if compact != key {
-            strings.entry(compact).or_default().insert(id.to_string());
-        }
-        strings.entry(key).or_default().insert(id.to_string());
-    };
-    for t in texts.iter().chain(sheets.texts.iter().map(|(t, _)| t)) {
-        index(&t.text, &t.id);
-    }
-    for r in &dim_records {
-        if let Some(Value::String(d)) = r.value.get("display") {
-            index(d, &r.id);
-        }
-    }
-    for r in &block_records {
-        if let Some(Value::Object(attribs)) = r.value.get("attribs") {
-            for value in attribs.values() {
-                if let Value::String(s) = value {
-                    index(s, &r.id);
-                }
-            }
-        }
-        // A table cell's text leads to the table, whose record says which
-        // row and column it is in.
-        if let Some(Value::Array(cells)) = r.value.get("table").and_then(|t| t.get("cells")) {
-            for cell in cells {
-                if let Some(Value::String(s)) = cell.get("text") {
-                    index(s, &r.id);
-                }
-            }
-        }
-    }
+    let strings = strings_index(&texts, &sheets.texts, &dim_records, &block_records);
     let frame_reports: Vec<FrameReport> = plan.frames.iter().map(|b| b.report.clone()).collect();
     let written_total: usize = frame_reports
         .iter()
@@ -1023,48 +953,15 @@ pub fn export_package(
         regions: &region_records,
         geometry: &geo_records,
     };
-    let mut tiles_json: Vec<Value> = Vec::new();
-    for build in &plan.frames {
-        for tile in &build.tiles {
-            let mut entry = json!({
-                "id": tile.id,
-                "frame": tile.frame,
-                "z": tile.z,
-                "row": tile.row,
-                "col": tile.col,
-                "px": [tile.width, tile.height],
-                "world": rounder.rect(&tile.world),
-                "empty": tile.empty,
-            });
-            if tile.empty {
-                // One reason a planned tile is not written: nothing visible
-                // reaches it. A reader following `children` or a record's
-                // `tiles` must know an absent file was meant to be absent.
-                entry["reason"] = json!("no_visible_entity_on_tile");
-            }
-            if let Some(img) = tile_images.iter().find(|i| i.id == tile.id) {
-                entry["png"] = json!(img.png);
-                if let Some((bytes, sha)) = tile_png.get(img.id.as_str()) {
-                    entry["bytes"] = json!(bytes);
-                    entry["sha256"] = json!(sha);
-                }
-                let sidecar =
-                    tiles::sidecar(img, tile, &build.tiles, &profile, &on_tiles, &rounder);
-                let sidecar_path = img.png.replace(".png", ".json");
-                writer.write_json_compact(&sidecar_path, &sidecar, "sidecar")?;
-                entry["sidecar"] = json!(sidecar_path);
-            }
-            tiles_json.push(entry);
-        }
-    }
-    writer.write_json(
-        "tiles.json",
-        &json!({
-            "$schema": SCHEMA,
-            "frames": frame_reports.iter().map(|f| json!({ "id": f.id, "kind": f.kind, "content": rounder.rect(&f.content), "levels": f.levels })).collect::<Vec<_>>(),
-            "tiles": tiles_json,
-        }),
-        "tiles",
+    write_tiles(
+        &mut writer,
+        &plan,
+        &frame_reports,
+        &tile_images,
+        &tile_png,
+        &profile,
+        &on_tiles,
+        &rounder,
     )?;
     writer.write_json(
         "drawing.json",
@@ -1087,36 +984,10 @@ pub fn export_package(
     }
 
     // --- report.json -------------------------------------------------------
-    let mut hidden_by_reason: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut hidden_named: Vec<(EntityId, Value)> = Vec::new();
-    for p in parts {
-        if let Some(reason) = p.hidden {
-            *hidden_by_reason.entry(hidden_name(reason)).or_default() += 1;
-            if hidden_named.len() < MAX_HIDDEN_NAMED {
-                let handle = top
-                    .get(&p.id)
-                    .map_or(Value::Null, |e| handle_of(e.common()));
-                hidden_named.push((p.id, handle));
-            }
-        }
-    }
+    let (hidden_by_reason, hidden_named) = hidden_summary(parts, &top);
     // Every bound the model render and each sheet render engaged, summed
     // field by field: what a malformed file cost the package.
-    let mut limits = scene.limits.clone();
-    for l in &sheets.limits {
-        limits.oversized_entities += l.oversized_entities;
-        limits.block_refs_dropped += l.block_refs_dropped;
-        limits.hatch_patterns_dropped += l.hatch_patterns_dropped;
-        limits.entities_dropped += l.entities_dropped;
-        limits.truncated_parts += l.truncated_parts;
-        limits.unreadable_entities += l.unreadable_entities;
-        limits.out_of_range_entities += l.out_of_range_entities;
-        for d in &l.dropped {
-            if limits.dropped.len() < MAX_HIDDEN_NAMED && !limits.dropped.contains(d) {
-                limits.dropped.push(d.clone());
-            }
-        }
-    }
+    let limits = merged_limits(&scene.limits, &sheets.limits);
     let limits = &limits;
     if limits.engaged() {
         warnings.push(format!(
@@ -1124,24 +995,7 @@ pub fn export_package(
             limits_summary(limits)
         ));
     }
-    let excluded: Vec<Excluded> = scene
-        .crop
-        .left_out
-        .iter()
-        .map(|l| Excluded {
-            id: l.id,
-            handle: top
-                .get(&l.id)
-                .and_then(|e| e.common().source_handle.resolved().cloned()),
-            type_name: l.type_name.clone(),
-            rect: Rect::from(l.extent),
-            reason: match l.reason {
-                LeftOutReason::ScaleOutlier => ExcludeReason::ScaleOutlier,
-                LeftOutReason::FarOutlier => ExcludeReason::FarOutlier,
-                _ => ExcludeReason::OutsideView,
-            },
-        })
-        .collect();
+    let excluded = crop_excluded(&scene, &top);
     let crop_report = CropReport {
         source,
         rect: fit.rect,
@@ -1153,19 +1007,7 @@ pub fn export_package(
     // "What is missing from the picture, and why" is one list: the crop's
     // own exclusions plus every entity a robustness bound acted on, each
     // naming the bound under `reason`.
-    let excluded_json: Vec<Value> = crop_report
-        .excluded
-        .iter()
-        .map(|e| json!(e))
-        .chain(limits.dropped.iter().map(|d| {
-            json!({
-                "id": d.id,
-                "handle": top.get(&d.id).map_or(Value::Null, |e| handle_of(e.common())),
-                "type_name": d.type_name,
-                "reason": cap_name(d.cap),
-            })
-        }))
-        .collect();
+    let excluded_json = missing_json(&crop_report, limits, &top);
     let counts = Counts {
         entities: parts.len(),
         texts: written_texts.len(),
@@ -1266,6 +1108,254 @@ pub fn export_package(
         counts,
         warnings,
     })
+}
+
+/// The strings index of `strings.json`: every text, every dimension's
+/// displayed text, every block attribute value and every table cell text,
+/// under its normalised key and its space-free key, each leading to the
+/// records that hold it.
+fn strings_index(
+    texts: &[PlacedText],
+    paper_texts: &[(PlacedText, usize)],
+    dim_records: &[Record],
+    block_records: &[Record],
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut strings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut index = |text: &str, id: &str| {
+        let key = normalize_string(text);
+        if key.is_empty() {
+            return;
+        }
+        let compact = compact_string(text);
+        if compact != key {
+            strings.entry(compact).or_default().insert(id.to_string());
+        }
+        strings.entry(key).or_default().insert(id.to_string());
+    };
+    for t in texts.iter().chain(paper_texts.iter().map(|(t, _)| t)) {
+        index(&t.text, &t.id);
+    }
+    for r in dim_records {
+        if let Some(Value::String(d)) = r.value.get("display") {
+            index(d, &r.id);
+        }
+    }
+    for r in block_records {
+        if let Some(Value::Object(attribs)) = r.value.get("attribs") {
+            for value in attribs.values() {
+                if let Value::String(s) = value {
+                    index(s, &r.id);
+                }
+            }
+        }
+        // A table cell's text leads to the table, whose record says which
+        // row and column it is in.
+        if let Some(Value::Array(cells)) = r.value.get("table").and_then(|t| t.get("cells")) {
+            for cell in cells {
+                if let Some(Value::String(s)) = cell.get("text") {
+                    index(s, &r.id);
+                }
+            }
+        }
+    }
+    strings
+}
+
+/// Every bound the model render and each sheet render engaged, summed field
+/// by field: what a malformed file cost the package.
+fn merged_limits(
+    model: &iron_render_cad::limits::LimitReport,
+    sheets: &[iron_render_cad::limits::LimitReport],
+) -> iron_render_cad::limits::LimitReport {
+    let mut limits = model.clone();
+    for l in sheets {
+        limits.oversized_entities += l.oversized_entities;
+        limits.block_refs_dropped += l.block_refs_dropped;
+        limits.hatch_patterns_dropped += l.hatch_patterns_dropped;
+        limits.entities_dropped += l.entities_dropped;
+        limits.truncated_parts += l.truncated_parts;
+        limits.unreadable_entities += l.unreadable_entities;
+        limits.out_of_range_entities += l.out_of_range_entities;
+        for d in &l.dropped {
+            if limits.dropped.len() < MAX_HIDDEN_NAMED && !limits.dropped.contains(d) {
+                limits.dropped.push(d.clone());
+            }
+        }
+    }
+    limits
+}
+
+/// How many hidden entities each reason covers, and the first few of them by
+/// ID with their source handle.
+fn hidden_summary<'a>(
+    parts: &[Part],
+    top: &BTreeMap<EntityId, &Entity>,
+) -> (BTreeMap<&'a str, usize>, Vec<(EntityId, Value)>) {
+    let mut by_reason: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut named: Vec<(EntityId, Value)> = Vec::new();
+    for p in parts {
+        if let Some(reason) = p.hidden {
+            *by_reason.entry(hidden_name(reason)).or_default() += 1;
+            if named.len() < MAX_HIDDEN_NAMED {
+                let handle = top
+                    .get(&p.id)
+                    .map_or(Value::Null, |e| handle_of(e.common()));
+                named.push((p.id, handle));
+            }
+        }
+    }
+    (by_reason, named)
+}
+
+/// The entities the crop left out, each with the reason.
+fn crop_excluded(scene: &Scene, top: &BTreeMap<EntityId, &Entity>) -> Vec<Excluded> {
+    scene
+        .crop
+        .left_out
+        .iter()
+        .map(|l| Excluded {
+            id: l.id,
+            handle: top
+                .get(&l.id)
+                .and_then(|e| e.common().source_handle.resolved().cloned()),
+            type_name: l.type_name.clone(),
+            rect: Rect::from(l.extent),
+            reason: match l.reason {
+                LeftOutReason::ScaleOutlier => ExcludeReason::ScaleOutlier,
+                LeftOutReason::FarOutlier => ExcludeReason::FarOutlier,
+                _ => ExcludeReason::OutsideView,
+            },
+        })
+        .collect()
+}
+
+/// "What is missing from the picture, and why" as one list: the crop's own
+/// exclusions plus every entity a robustness bound acted on, each naming the
+/// bound under `reason`.
+fn missing_json(
+    crop: &CropReport,
+    limits: &iron_render_cad::limits::LimitReport,
+    top: &BTreeMap<EntityId, &Entity>,
+) -> Vec<Value> {
+    crop.excluded
+        .iter()
+        .map(|e| json!(e))
+        .chain(limits.dropped.iter().map(|d| {
+            json!({
+                "id": d.id,
+                "handle": top.get(&d.id).map_or(Value::Null, |e| handle_of(e.common())),
+                "type_name": d.type_name,
+                "reason": cap_name(d.cap),
+            })
+        }))
+        .collect()
+}
+
+/// `tiles.json` and the sidecar of every written tile.
+#[allow(clippy::too_many_arguments)]
+fn write_tiles(
+    writer: &mut Writer<'_>,
+    plan: &tiles::FramePlan,
+    frame_reports: &[FrameReport],
+    tile_images: &[ImageInfo],
+    tile_png: &BTreeMap<&str, (u64, String)>,
+    profile: &Profile,
+    on_tiles: &tiles::OnTiles<'_>,
+    rounder: &Rounder,
+) -> Result<(), ExportError> {
+    let mut tiles_json: Vec<Value> = Vec::new();
+    for build in &plan.frames {
+        for tile in &build.tiles {
+            let mut entry = json!({
+                "id": tile.id,
+                "frame": tile.frame,
+                "z": tile.z,
+                "row": tile.row,
+                "col": tile.col,
+                "px": [tile.width, tile.height],
+                "world": rounder.rect(&tile.world),
+                "empty": tile.empty,
+            });
+            if tile.empty {
+                // One reason a planned tile is not written: nothing visible
+                // reaches it. A reader following `children` or a record's
+                // `tiles` must know an absent file was meant to be absent.
+                entry["reason"] = json!("no_visible_entity_on_tile");
+            }
+            if let Some(img) = tile_images.iter().find(|i| i.id == tile.id) {
+                entry["png"] = json!(img.png);
+                if let Some((bytes, sha)) = tile_png.get(img.id.as_str()) {
+                    entry["bytes"] = json!(bytes);
+                    entry["sha256"] = json!(sha);
+                }
+                let sidecar = tiles::sidecar(img, tile, &build.tiles, profile, on_tiles, rounder);
+                let sidecar_path = img.png.replace(".png", ".json");
+                writer.write_json_compact(&sidecar_path, &sidecar, "sidecar")?;
+                entry["sidecar"] = json!(sidecar_path);
+            }
+            tiles_json.push(entry);
+        }
+    }
+    writer.write_json(
+        "tiles.json",
+        &json!({
+            "$schema": SCHEMA,
+            "frames": frame_reports.iter().map(|f| json!({ "id": f.id, "kind": f.kind, "content": rounder.rect(&f.content), "levels": f.levels })).collect::<Vec<_>>(),
+            "tiles": tiles_json,
+        }),
+        "tiles",
+    )?;
+    Ok(())
+}
+
+/// The image of every tile the plan writes: each level's tiles that are not
+/// empty, with the path the tile's PNG goes to.
+fn planned_tile_images(plan: &tiles::FramePlan) -> Vec<ImageInfo> {
+    let mut tile_images: Vec<ImageInfo> = Vec::new();
+    for build in &plan.frames {
+        for level in &build.report.levels {
+            for tile in build.tiles.iter().filter(|t| t.z == level.z && !t.empty) {
+                let png = format!(
+                    "frames/{}/tiles/z{}/r{:02}_c{:02}.png",
+                    tile.frame, tile.z, tile.row, tile.col
+                );
+                tile_images.push(ImageInfo::new(
+                    &tile.id,
+                    &png,
+                    tile.world,
+                    level.ppu,
+                    tile.width,
+                    tile.height,
+                ));
+            }
+        }
+    }
+    tile_images
+}
+
+/// The record of every paper-space text, with its sheet and that sheet
+/// image's pixel box.
+fn paper_text_records(
+    sheets: &sheets::Sheets,
+    rounder: &Rounder,
+    measured_why: &str,
+) -> Vec<Record> {
+    sheets
+        .texts
+        .iter()
+        .map(|(t, sheet)| {
+            let report = &sheets.reports[*sheet];
+            let mut r = text_record(t, rounder, "paper", Some(&report.name), measured_why);
+            let mut px = Map::new();
+            px.insert(
+                report.overview.id.clone(),
+                json!(report.overview.px_box(&t.bbox)),
+            );
+            r.value.insert("tiles".into(), json!([]));
+            r.value.insert("px".into(), Value::Object(px));
+            r
+        })
+        .collect()
 }
 
 /// The robustness bounds a render engaged, in a sentence.
