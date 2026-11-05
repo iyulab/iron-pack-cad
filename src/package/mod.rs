@@ -812,30 +812,12 @@ pub fn export_package(
     };
 
     // --- records with their images -------------------------------------------
-    let images_for = |bbox: &Rect| -> Vec<&ImageInfo> {
-        tile_images
-            .iter()
-            .filter(|img| img.world.intersects(bbox))
-            .collect()
+    let join = ImageJoin {
+        overview: &overview,
+        frame_overviews: &frame_overviews,
+        tile_images: &tile_images,
     };
-    let px_map = |bbox: &Rect| -> Value {
-        let mut m = Map::new();
-        m.insert("ov".to_string(), json!(overview.px_box(bbox)));
-        for ov in frame_overviews.iter().filter(|o| o.world.intersects(bbox)) {
-            m.insert(ov.id.clone(), json!(ov.px_box(bbox)));
-        }
-        for img in images_for(bbox) {
-            m.insert(img.id.clone(), json!(img.px_box(bbox)));
-        }
-        Value::Object(m)
-    };
-    let tiles_for =
-        |bbox: &Rect| -> Vec<String> { images_for(bbox).iter().map(|i| i.id.clone()).collect() };
-    let with_images = |mut r: Record| -> Record {
-        r.value.insert("tiles".into(), json!(tiles_for(&r.bbox)));
-        r.value.insert("px".into(), px_map(&r.bbox));
-        r
-    };
+    let with_images = |r: Record| -> Record { join.with_images(r) };
 
     let mut text_records: Vec<Record> = texts
         .iter()
@@ -899,18 +881,13 @@ pub fn export_package(
         shard_kb: options.shard_kb,
     };
     writer.write_bytes("overview.png", &overview_png, "image")?;
-    // Tile id -> its PNG's byte count and SHA-256, for `tiles.json`.
-    let mut tile_png: BTreeMap<&str, (u64, String)> = BTreeMap::new();
-    for (image, bytes) in to_draw.iter().zip(&drawn) {
-        let is_tile = !frame_overviews.iter().any(|ov| ov.id == image.id);
-        if is_tile {
-            tile_png.insert(&image.id, (bytes.len() as u64, sha256_hex(bytes)));
-        }
-        writer.write_bytes(&image.png, bytes, if is_tile { "tile" } else { "image" })?;
-    }
-    for (path, bytes) in &sheets.images {
-        writer.write_bytes(path, bytes, "sheet")?;
-    }
+    let tile_png = write_images(
+        &mut writer,
+        &to_draw,
+        &drawn,
+        &frame_overviews,
+        &sheets.images,
+    )?;
     writer.write_records("texts", "text", &written_texts)?;
     writer.write_records("dimensions", "dimension", &dim_records)?;
     writer.write_records("geometry", "geometry", &geo_records)?;
@@ -920,29 +897,9 @@ pub fn export_package(
     // The definitions -- a table, not a per-entity record -- are in
     // drawing.json.
     writer.write_records("blocks", "blocks", &block_records)?;
-    writer.write_json(
-        "strings.json",
-        &json!({
-            "$schema": SCHEMA,
-            "normalization": "NFKC, fraction slash to '/', case fold, whitespace collapsed; each string also under its key with spaces removed",
-            "ids": "record ids: the drawing's entity reference ID as a decimal number, or `<insert>/<child>` for a text drawn inside a block. The kind is not in the id -- resolve it with manifest.shard_index, whose `first_key`/`last_key` bracket each file's ids by their first number (`int(id.split('/')[0])`). One id can be in two kinds at once: a closed polyline is both a geometry and a region record.",
-            "strings": strings,
-        }),
-        "strings",
-    )?;
-
+    write_strings(&mut writer, &strings)?;
     if options.sheets {
-        writer.write_json(
-            "sheets.json",
-            &json!({
-                "$schema": SCHEMA,
-                // Stated in the fields this file publishes.
-                "model_to_paper": "Per composited viewport, `model_to_paper` is the map the model was drawn through: row-major [a, b, c, d, e, f] with paper_x = a x + b y + c and paper_y = d x + e y + f for a model point (x, y) -- a rotation by `twist_deg` and a scale of `scale` paper units per model unit, which sends the four `model_window` corners (lower-left, lower-right, upper-right, upper-left as they sit on the sheet) onto the four corners of its `frame`. With twist_deg 0 that is paper = [frame[0] + (x - model_window[0][0]) * scale, frame[1] + (y - model_window[0][1]) * scale]. Then apply this sheet's overview `world_to_px` to get pixels in sheets/<layout>/overview.png.",
-                "twist_convention": "`twist_deg` is the viewport's VIEWTWIST in degrees, positive turning the model counter-clockwise on the sheet (ezdxf's rule; not checked against a plotted sheet).",
-                "sheets": sheets.reports,
-            }),
-            "sheets",
-        )?;
+        write_sheets_json(&mut writer, &sheets.reports)?;
     }
 
     // --- sidecars and tiles.json -------------------------------------------------
@@ -1022,32 +979,15 @@ pub fn export_package(
         frames: frame_reports.len(),
         sheets: sheets.reports.len(),
     };
-    let hidden_top_level: usize = hidden_by_reason.values().sum();
-    // `count` is the number `manifest.counts.hidden` prints, every hidden
-    // entity the renderer met; the split says how many of them the
-    // top-level reasons cover.
-    let report_value = json!({
-        "$schema": SCHEMA,
-        "excluded": excluded_json,
-        "hidden": {
-            "count": scene.hidden,
-            "top_level": hidden_top_level,
-            "inside_blocks": scene.hidden.saturating_sub(hidden_top_level),
-            "covers": "top_level",
-            "by_reason": hidden_by_reason,
-            "ids": hidden_named.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
-            "handles": hidden_named.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(),
-            "handles_limit": MAX_HIDDEN_NAMED,
-            "handles_truncated": hidden_top_level > hidden_named.len(),
-        },
-        "unsupported_types": scene.unsupported_types,
-        "empty_blocks": scene.empty_blocks,
-        "unresolved_block_refs": scene.unresolved_block_refs,
-        "undefined_arcs": scene.undefined_arcs,
-        "edgeless": scene.edgeless,
-        "limits": limits_json(limits, &top),
-        "warnings": warnings,
-    });
+    let report_value = report_json(
+        &scene,
+        &excluded_json,
+        &hidden_by_reason,
+        &hidden_named,
+        limits,
+        &top,
+        &warnings,
+    );
     writer.files.push(WrittenFile {
         path: "report.json".into(),
         bytes: None,
@@ -1075,28 +1015,14 @@ pub fn export_package(
         warnings: &warnings,
     });
     let manifest_text = serde_json::to_string_pretty(&manifest)?;
-    let readme = readme(options);
-    std::fs::write(dir.join("README.txt"), readme.as_bytes()).map_err(|source| {
-        ExportError::Io {
-            path: dir.join("README.txt"),
-            source,
-        }
-    })?;
+    write_text(dir, "README.txt", &readme(options))?;
     let report_text = serde_json::to_string_pretty(&report_value)?;
-    std::fs::write(dir.join("report.json"), &report_text).map_err(|source| ExportError::Io {
-        path: dir.join("report.json"),
-        source,
-    })?;
+    write_text(dir, "report.json", &report_text)?;
     // manifest.json is written last, after every file it names: a directory
     // that holds one is a finished package, and one that does not is
     // nothing a reader should trust. (It is also what the next run's
     // `clear_previous_package` reads.)
-    std::fs::write(dir.join("manifest.json"), &manifest_text).map_err(|source| {
-        ExportError::Io {
-            path: dir.join("manifest.json"),
-            source,
-        }
-    })?;
+    write_text(dir, "manifest.json", &manifest_text)?;
 
     Ok(ExportReport {
         dir: dir.to_path_buf(),
@@ -1356,6 +1282,163 @@ fn paper_text_records(
             r
         })
         .collect()
+}
+
+/// What joins a record to the images that show it: the overview, each frame
+/// overview and each tile its box reaches.
+struct ImageJoin<'a> {
+    overview: &'a ImageInfo,
+    frame_overviews: &'a [&'a ImageInfo],
+    tile_images: &'a [ImageInfo],
+}
+
+impl ImageJoin<'_> {
+    /// The tiles whose world box meets `bbox`.
+    fn images_for(&self, bbox: &Rect) -> Vec<&ImageInfo> {
+        self.tile_images
+            .iter()
+            .filter(|img| img.world.intersects(bbox))
+            .collect()
+    }
+
+    /// `bbox` in pixels on the overview, on each frame overview it meets and
+    /// on each tile it meets, by image ID.
+    fn px_map(&self, bbox: &Rect) -> Value {
+        let mut m = Map::new();
+        m.insert("ov".to_string(), json!(self.overview.px_box(bbox)));
+        for ov in self
+            .frame_overviews
+            .iter()
+            .filter(|o| o.world.intersects(bbox))
+        {
+            m.insert(ov.id.clone(), json!(ov.px_box(bbox)));
+        }
+        for img in self.images_for(bbox) {
+            m.insert(img.id.clone(), json!(img.px_box(bbox)));
+        }
+        Value::Object(m)
+    }
+
+    /// The record with its `tiles` and `px` fields.
+    fn with_images(&self, mut r: Record) -> Record {
+        let tiles: Vec<String> = self
+            .images_for(&r.bbox)
+            .iter()
+            .map(|i| i.id.clone())
+            .collect();
+        r.value.insert("tiles".into(), json!(tiles));
+        r.value.insert("px".into(), self.px_map(&r.bbox));
+        r
+    }
+}
+
+/// Every image but the overview: the frame overviews and the tiles, then the
+/// sheets. Returns each tile's PNG byte count and SHA-256 by tile ID, for
+/// `tiles.json`.
+fn write_images<'a>(
+    writer: &mut Writer<'_>,
+    to_draw: &[&'a ImageInfo],
+    drawn: &[Vec<u8>],
+    frame_overviews: &[&ImageInfo],
+    sheet_images: &[(String, Vec<u8>)],
+) -> Result<BTreeMap<&'a str, (u64, String)>, ExportError> {
+    let mut tile_png: BTreeMap<&str, (u64, String)> = BTreeMap::new();
+    for (image, bytes) in to_draw.iter().zip(drawn) {
+        let is_tile = !frame_overviews.iter().any(|ov| ov.id == image.id);
+        if is_tile {
+            tile_png.insert(&image.id, (bytes.len() as u64, sha256_hex(bytes)));
+        }
+        writer.write_bytes(&image.png, bytes, if is_tile { "tile" } else { "image" })?;
+    }
+    for (path, bytes) in sheet_images {
+        writer.write_bytes(path, bytes, "sheet")?;
+    }
+    Ok(tile_png)
+}
+
+/// `strings.json`: the strings index and how its keys were made.
+fn write_strings(
+    writer: &mut Writer<'_>,
+    strings: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<(), ExportError> {
+    writer.write_json(
+        "strings.json",
+        &json!({
+            "$schema": SCHEMA,
+            "normalization": "NFKC, fraction slash to '/', case fold, whitespace collapsed; each string also under its key with spaces removed",
+            "ids": "record ids: the drawing's entity reference ID as a decimal number, or `<insert>/<child>` for a text drawn inside a block. The kind is not in the id -- resolve it with manifest.shard_index, whose `first_key`/`last_key` bracket each file's ids by their first number (`int(id.split('/')[0])`). One id can be in two kinds at once: a closed polyline is both a geometry and a region record.",
+            "strings": strings,
+        }),
+        "strings",
+    )?;
+    Ok(())
+}
+
+/// `sheets.json`: the map from model to paper per composited viewport, and
+/// one report per sheet.
+fn write_sheets_json(
+    writer: &mut Writer<'_>,
+    reports: &[sheets::SheetReport],
+) -> Result<(), ExportError> {
+    writer.write_json(
+        "sheets.json",
+        &json!({
+            "$schema": SCHEMA,
+            // Stated in the fields this file publishes.
+            "model_to_paper": "Per composited viewport, `model_to_paper` is the map the model was drawn through: row-major [a, b, c, d, e, f] with paper_x = a x + b y + c and paper_y = d x + e y + f for a model point (x, y) -- a rotation by `twist_deg` and a scale of `scale` paper units per model unit, which sends the four `model_window` corners (lower-left, lower-right, upper-right, upper-left as they sit on the sheet) onto the four corners of its `frame`. With twist_deg 0 that is paper = [frame[0] + (x - model_window[0][0]) * scale, frame[1] + (y - model_window[0][1]) * scale]. Then apply this sheet's overview `world_to_px` to get pixels in sheets/<layout>/overview.png.",
+            "twist_convention": "`twist_deg` is the viewport's VIEWTWIST in degrees, positive turning the model counter-clockwise on the sheet (ezdxf's rule; not checked against a plotted sheet).",
+            "sheets": reports,
+        }),
+        "sheets",
+    )?;
+    Ok(())
+}
+
+/// `report.json`: what is missing from the picture and why, the hidden
+/// entities, what the renderer did not draw, the robustness bounds engaged
+/// and the warnings.
+#[allow(clippy::too_many_arguments)]
+fn report_json(
+    scene: &Scene,
+    missing: &[Value],
+    hidden_by_reason: &BTreeMap<&str, usize>,
+    hidden_named: &[(EntityId, Value)],
+    limits: &iron_render_cad::limits::LimitReport,
+    top: &BTreeMap<EntityId, &Entity>,
+    warnings: &[String],
+) -> Value {
+    let hidden_top_level: usize = hidden_by_reason.values().sum();
+    // `count` is the number `manifest.counts.hidden` prints, every hidden
+    // entity the renderer met; the split says how many of them the
+    // top-level reasons cover.
+    json!({
+        "$schema": SCHEMA,
+        "excluded": missing,
+        "hidden": {
+            "count": scene.hidden,
+            "top_level": hidden_top_level,
+            "inside_blocks": scene.hidden.saturating_sub(hidden_top_level),
+            "covers": "top_level",
+            "by_reason": hidden_by_reason,
+            "ids": hidden_named.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            "handles": hidden_named.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(),
+            "handles_limit": MAX_HIDDEN_NAMED,
+            "handles_truncated": hidden_top_level > hidden_named.len(),
+        },
+        "unsupported_types": scene.unsupported_types,
+        "empty_blocks": scene.empty_blocks,
+        "unresolved_block_refs": scene.unresolved_block_refs,
+        "undefined_arcs": scene.undefined_arcs,
+        "edgeless": scene.edgeless,
+        "limits": limits_json(limits, top),
+        "warnings": warnings,
+    })
+}
+
+/// One text file of the package, written as it is.
+fn write_text(dir: &Path, name: &str, text: &str) -> Result<(), ExportError> {
+    let path = dir.join(name);
+    std::fs::write(&path, text.as_bytes()).map_err(|source| ExportError::Io { path, source })
 }
 
 /// The robustness bounds a render engaged, in a sentence.
