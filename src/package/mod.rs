@@ -391,7 +391,7 @@ pub enum ExcludeReason {
 #[non_exhaustive]
 pub struct Excluded {
     /// Its reference ID in the model.
-    pub id: u64,
+    pub id: EntityId,
     /// The file's handle for it, when it came from a file.
     pub handle: Option<String>,
     pub type_name: String,
@@ -1088,7 +1088,7 @@ pub fn export_package(
 
     // --- report.json -------------------------------------------------------
     let mut hidden_by_reason: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut hidden_named: Vec<(u64, Value)> = Vec::new();
+    let mut hidden_named: Vec<(EntityId, Value)> = Vec::new();
     for p in parts {
         if let Some(reason) = p.hidden {
             *hidden_by_reason.entry(hidden_name(reason)).or_default() += 1;
@@ -1096,7 +1096,7 @@ pub fn export_package(
                 let handle = top
                     .get(&p.id)
                     .map_or(Value::Null, |e| handle_of(e.common()));
-                hidden_named.push((p.id.value(), handle));
+                hidden_named.push((p.id, handle));
             }
         }
     }
@@ -1129,7 +1129,7 @@ pub fn export_package(
         .left_out
         .iter()
         .map(|l| Excluded {
-            id: l.id.value(),
+            id: l.id,
             handle: top
                 .get(&l.id)
                 .and_then(|e| e.common().source_handle.resolved().cloned()),
@@ -1159,7 +1159,7 @@ pub fn export_package(
         .map(|e| json!(e))
         .chain(limits.dropped.iter().map(|d| {
             json!({
-                "id": d.id.value(),
+                "id": d.id,
                 "handle": top.get(&d.id).map_or(Value::Null, |e| handle_of(e.common())),
                 "type_name": d.type_name,
                 "reason": cap_name(d.cap),
@@ -1200,9 +1200,9 @@ pub fn export_package(
         },
         "unsupported_types": scene.unsupported_types,
         "empty_blocks": scene.empty_blocks,
-        "unresolved_block_refs": scene.unresolved_block_refs.iter().map(|id| id.value()).collect::<Vec<_>>(),
-        "undefined_arcs": scene.undefined_arcs.iter().map(|id| id.value()).collect::<Vec<_>>(),
-        "edgeless": scene.edgeless.iter().map(|id| id.value()).collect::<Vec<_>>(),
+        "unresolved_block_refs": scene.unresolved_block_refs,
+        "undefined_arcs": scene.undefined_arcs,
+        "edgeless": scene.edgeless,
         "limits": limits_json(limits, &top),
         "warnings": warnings,
     });
@@ -1306,7 +1306,7 @@ fn limits_json(
         "unreadable_entities": l.unreadable_entities,
         "out_of_range_entities": l.out_of_range_entities,
         "dropped": l.dropped.iter().map(|d| json!({
-            "id": d.id.value(),
+            "id": d.id,
             "handle": top.get(&d.id).map_or(Value::Null, |e| handle_of(e.common())),
             "type_name": d.type_name,
             "cap": cap_name(d.cap),

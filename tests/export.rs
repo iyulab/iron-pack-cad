@@ -210,6 +210,13 @@ fn hidden_entities_are_counted_the_same_way_in_both_files() {
         hidden["ids"].as_array().unwrap().len(),
         hidden["top_level"].as_u64().unwrap() as usize
     );
+    // Reference IDs are decimal strings, never numbers.
+    for id in hidden["ids"].as_array().unwrap() {
+        let id = id
+            .as_str()
+            .unwrap_or_else(|| panic!("an ID is a string: {id}"));
+        assert!(id.parse::<u64>().is_ok(), "{id}");
+    }
     assert_eq!(hidden["handles_truncated"], false);
     assert_eq!(hidden["handles_limit"], 100);
 }
@@ -1045,7 +1052,7 @@ fn an_arc_whose_angles_are_equal_is_named_in_the_report_not_measured() {
     let quarter = by_handle(&geometry, "41");
     assert_eq!(quarter["sweep_deg"], 90.0, "{quarter}");
     let report = read_json(&tmp.0.join("report.json"));
-    assert_eq!(report["undefined_arcs"], serde_json::json!([0x40]));
+    assert_eq!(report["undefined_arcs"], serde_json::json!(["64"]));
 }
 
 #[test]

@@ -7,6 +7,14 @@ bumps the minor version.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** entity reference IDs in `report.json` and the sheet records are decimal strings, as they
+  already were in the record files: the dropped and excluded entities' `id`, the hidden list's `ids`,
+  `unresolved_block_refs`, `undefined_arcs`, `edgeless`, and a sheet viewport's `id` (the public
+  `Excluded::id` and `SheetViewport::id` are `EntityId` instead of `u64`). Built on `uncad-model`'s
+  change of IDs to strings.
+
 ## [0.14.0] - 2026-11-02
 
 ### Added

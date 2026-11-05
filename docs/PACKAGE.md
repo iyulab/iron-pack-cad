@@ -122,7 +122,9 @@ engaged, and the warnings.
   `{name, insunits, to_mm, source}`.
 - A record's `id` is the model's entity reference ID in decimal, or a path
   `<insert>/<child>` for a text drawn inside a block. Its `handle` is the
-  file's own handle, in hexadecimal, when the entity came from a file.
+  file's own handle, in hexadecimal, when the entity came from a file. A reference ID is a string
+  everywhere it appears -- in the reports too (`id`, `ids`, `undefined_arcs`, `edgeless`, a sheet
+  viewport's `id`) -- never a number.
 - Points are `[x, y]`; boxes are `[x0, y0, x1, y1]`. Every point in the
   package is planar. Angles are in degrees. Pixel coordinates are integers,
   absolute, with y down.

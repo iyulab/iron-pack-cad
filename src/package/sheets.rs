@@ -21,7 +21,7 @@ use crate::frame::{Rect, EMPTY_RECT};
 #[non_exhaustive]
 pub struct SheetViewport {
     /// The VIEWPORT's reference ID in the model.
-    pub id: u64,
+    pub id: EntityId,
     /// The file's handle for it, when it came from a file.
     pub handle: Option<String>,
     /// The number the file gives it (DXF 69); a DWG states none.
@@ -327,7 +327,7 @@ pub(crate) fn export_sheets(
                 let view = vp.and_then(|v| v.view);
                 let m = r.model_to_paper;
                 SheetViewport {
-                    id: r.id.value(),
+                    id: r.id,
                     handle: vp.and_then(|v| v.common.source_handle.resolved().cloned()),
                     viewport_id: vp.and_then(|v| v.viewport_id),
                     on: vp.is_none_or(|v| v.on != Some(false)),
