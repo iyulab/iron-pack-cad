@@ -1618,7 +1618,6 @@ fn geometry_records(
     unit: &str,
     rounder: &Rounder,
 ) -> (Vec<Record>, Vec<Record>) {
-    use std::f64::consts::{PI, TAU};
     let mut geometry: Vec<Record> = Vec::new();
     let mut regions: Vec<Record> = Vec::new();
     // The outlines of the regions, world coordinates, for their labels.
@@ -1644,216 +1643,23 @@ fn geometry_records(
         v.insert("handle".into(), handle_of(e.common()));
         v.insert("type".into(), json!(e.type_name()));
         v.insert("layer".into(), json!(layer_name(&e.common().layer)));
-        let mut confidence = "exact";
-        let mut why: Option<&str> = None;
+        let mut m = Measure::default();
         match e {
-            Entity::Line(l) => {
-                v.insert("from".into(), rounder.pt3(l.start_point));
-                v.insert("to".into(), rounder.pt3(l.end_point));
-                // `length` is the length the file holds: the 3D distance.
-                // `length_plan` and `dz` are added only when the line leaves
-                // the plane, the only signal in an otherwise planar record
-                // that it does.
-                let (dx, dy, dz) = (
-                    l.end_point.x - l.start_point.x,
-                    l.end_point.y - l.start_point.y,
-                    l.end_point.z - l.start_point.z,
-                );
-                let plan = dx.hypot(dy);
-                v.insert("length".into(), json!(rounder.derived(plan.hypot(dz))));
-                if rounder.derived(dz) != 0.0 {
-                    v.insert("length_plan".into(), json!(rounder.derived(plan)));
-                    v.insert("dz".into(), json!(rounder.derived(dz)));
-                }
-            }
-            Entity::Arc(a) => {
-                // Its own plane to the world: a mirrored arc (normal
-                // (0,0,-1)) runs clockwise there, so its world arc runs
-                // counter-clockwise from the image of its end to the image
-                // of its start.
-                let plane = geom::plane_to_world(a.extrusion, a.center.z);
-                let center = plane.apply(uncad_model::Point2D {
-                    x: a.center.x,
-                    y: a.center.y,
-                });
-                let (start, end) = if geom::is_similarity(&plane) {
-                    let turn = |angle: f64| {
-                        let (s, c) = angle.sin_cos();
-                        (plane.b * c + plane.d * s).atan2(plane.a * c + plane.c * s)
-                    };
-                    if plane.determinant() < 0.0 {
-                        (turn(a.end_angle), turn(a.start_angle))
-                    } else {
-                        (turn(a.start_angle), turn(a.end_angle))
-                    }
-                } else {
-                    confidence = "estimated";
-                    why = Some("drawn in a tilted plane: the centre is its plan projection, the angles are the arc's own");
-                    (a.start_angle, a.end_angle)
-                };
-                v.insert("center".into(), rounder.pt2(center));
-                v.insert("r".into(), json!(rounder.derived(a.radius)));
-                v.insert(
-                    "start_deg".into(),
-                    json!(rounder.derived(start.to_degrees())),
-                );
-                v.insert("end_deg".into(), json!(rounder.derived(end.to_degrees())));
-                // How far it runs is the model's: a mirror turns its
-                // direction, not its length. An arc with no sweep (equal
-                // angles) draws nothing, so it has no extent and no record;
-                // `report.json` names it.
-                if let Some(sweep) = a.sweep() {
-                    v.insert(
-                        "sweep_deg".into(),
-                        json!(rounder.derived(sweep.to_degrees())),
-                    );
-                    v.insert("length".into(), json!(rounder.derived(a.radius * sweep)));
-                }
-            }
-            Entity::Circle(c) => {
-                let plane = geom::plane_to_world(c.extrusion, c.center.z);
-                let center = plane.apply(uncad_model::Point2D {
-                    x: c.center.x,
-                    y: c.center.y,
-                });
-                if !geom::is_similarity(&plane) {
-                    why = Some("drawn in a tilted plane: the centre is its plan projection");
-                }
-                v.insert("center".into(), rounder.pt2(center));
-                v.insert("r".into(), json!(rounder.derived(c.radius)));
-                v.insert("length".into(), json!(rounder.derived(TAU * c.radius)));
-                v.insert(
-                    "area".into(),
-                    json!(rounder.derived(PI * c.radius * c.radius)),
-                );
-            }
-            Entity::Ellipse(el) => {
-                let a = el.major_axis_endpoint.x.hypot(el.major_axis_endpoint.y);
-                v.insert("center".into(), rounder.pt3(el.center));
-                v.insert("major_axis".into(), rounder.pt3(el.major_axis_endpoint));
-                v.insert("ratio".into(), json!(rounder.derived(el.axis_ratio)));
-                if el.sweep() == TAU {
-                    v.insert(
-                        "area".into(),
-                        json!(rounder.derived(PI * a * a * el.axis_ratio)),
-                    );
-                } else {
-                    confidence = "unavailable";
-                    why = Some("elliptical arc length is not computed");
-                }
-            }
+            Entity::Line(l) => line_fields(l, rounder, &mut v),
+            Entity::Arc(a) => arc_fields(a, rounder, &mut v, &mut m),
+            Entity::Circle(c) => circle_fields(c, rounder, &mut v, &mut m),
+            Entity::Ellipse(el) => ellipse_fields(el, rounder, &mut v, &mut m),
             Entity::LwPolyline(p) | Entity::Polyline2D(p) => {
-                // The vertices in the world, when the plane maps arcs to
-                // arcs; a tilted plane's are projected, and its lengths and
-                // area are measured in its own plane instead.
-                let plane = geom::plane_to_world(p.extrusion, p.elevation);
-                let world = geom::map_polyline(&p.vertices, &plane);
-                let tilted = world.is_none();
-                let world_vertices = world.unwrap_or_else(|| {
-                    p.vertices
-                        .iter()
-                        .map(|v| uncad_model::PolylineVertex {
-                            point: plane.apply(v.point),
-                            ..*v
-                        })
-                        .collect()
-                });
-                let measured_on = if tilted { &p.vertices } else { &world_vertices };
-                let bulged = world_vertices.iter().any(|v| v.bulge != 0.0);
-                v.insert("closed".into(), json!(p.closed));
-                v.insert(
-                    "vfmt".into(),
-                    json!(if bulged { "[x,y,bulge]" } else { "[x,y]" }),
-                );
-                let vertices: Vec<Value> = world_vertices
-                    .iter()
-                    .map(|vx| {
-                        if bulged {
-                            json!([
-                                rounder.coord(vx.point.x),
-                                rounder.coord(vx.point.y),
-                                vx.bulge
-                            ])
-                        } else {
-                            rounder.pt2(vx.point)
-                        }
-                    })
-                    .collect();
-                v.insert("vertices".into(), json!(vertices));
-                let length = geom::polyline_length(measured_on, p.closed);
-                v.insert(
-                    if p.closed { "perimeter" } else { "length" }.into(),
-                    json!(rounder.derived(length)),
-                );
-                if tilted {
-                    confidence = "estimated";
-                    why = Some("drawn in a tilted plane: the vertices are their plan projection, the length and area are measured in the entity's own plane");
-                }
-                if let Some(area) = geom::polyline_area(measured_on, p.closed) {
-                    let signed = geom::polyline_signed_area(&world_vertices, p.closed);
-                    let points: Vec<uncad_model::Point2D> =
-                        world_vertices.iter().map(|v| v.point).collect();
-                    let simple = simple_outline(&points);
-                    v.insert("area".into(), json!(rounder.derived(area)));
-                    v.insert(
-                        "orientation".into(),
-                        json!(if signed >= 0.0 { "ccw" } else { "cw" }),
-                    );
-                    v.insert("simple".into(), json!(simple));
-                    let outline_why = match simple {
-                        Some(true) => None,
-                        Some(false) => {
-                            confidence = "unavailable";
-                            Some("self-intersecting outline: the area has no meaning")
-                        }
-                        None => {
-                            if confidence == "exact" {
-                                confidence = "estimated";
-                            }
-                            Some(UNTESTED_OUTLINE)
-                        }
-                    };
-                    why = outline_why.or(why);
+                if let Some(shape) = polyline_fields(p, rounder, &mut v, &mut m) {
                     // Whatever the area could be measured of gets a region
                     // record: a closed two-vertex bulged polyline (AutoCAD's
                     // DONUT) is as much a closed shape as a triangle.
                     if p.closed && p.vertices.len() >= 2 {
-                        let (region_confidence, capped) =
-                            capped_confidence(confidence, e.common().confidence);
-                        let mut r = Map::new();
-                        r.insert("id".into(), json!(id));
-                        r.insert("handle".into(), handle_of(e.common()));
-                        r.insert("src".into(), json!(e.type_name()));
-                        r.insert("layer".into(), json!(layer_name(&e.common().layer)));
-                        r.insert("area".into(), json!(rounder.derived(area)));
-                        r.insert("area_unit".into(), json!(area_unit(unit)));
-                        r.insert(
-                            "area_si".into(),
-                            json!(units
-                                .and_then(|u| u.to_mm)
-                                .map(|mm| rounder.derived(area * mm * mm / 1e6))),
-                        );
-                        r.insert("perimeter".into(), json!(rounder.derived(length)));
-                        r.insert(
-                            "centroid".into(),
-                            rounder.pt2(geom::polygon_centroid(&points)),
-                        );
-                        r.insert("vertex_count".into(), json!(p.vertices.len()));
-                        r.insert("simple".into(), json!(simple));
-                        // The same `confidence` *and the same `why`* as the
-                        // geometry record this region is built from.
-                        r.insert("confidence".into(), json!(region_confidence));
-                        if let Some(w) = capped.or(why) {
-                            r.insert("why".into(), json!(w));
-                        }
-                        r.insert("bbox".into(), rounder.rect(&bbox));
-                        regions.push(Record {
-                            id: id.clone(),
-                            bbox,
-                            value: r,
-                        });
-                        if points.len() >= 3 {
-                            outlines.insert(id.clone(), points);
+                        regions.push(region_record(
+                            e, &id, bbox, &shape, &m, rounder, unit, units,
+                        ));
+                        if shape.points.len() >= 3 {
+                            outlines.insert(id.clone(), shape.points);
                         }
                     }
                 }
@@ -1871,8 +1677,8 @@ fn geometry_records(
             Entity::Spline(s) => {
                 v.insert("control_points".into(), json!(s.control_points.len()));
                 v.insert("fit_points".into(), json!(s.fit_points.len()));
-                confidence = "estimated";
-                why = Some("spline length is not evaluated");
+                m.confidence = "estimated";
+                m.why = Some("spline length is not evaluated");
             }
             Entity::Point(p) => {
                 v.insert("at".into(), rounder.pt3(p.position));
@@ -1892,8 +1698,8 @@ fn geometry_records(
             Entity::Hatch(h) => {
                 v.insert("paths".into(), json!(h.boundary_paths.len()));
                 v.insert("solid_fill".into(), json!(h.solid_fill));
-                confidence = "estimated";
-                why = Some("a hatch's area and boundary length are not measured");
+                m.confidence = "estimated";
+                m.why = Some("a hatch's area and boundary length are not measured");
             }
             Entity::Leader(l) => {
                 v.insert("vertex_count".into(), json!(l.vertices.len()));
@@ -1905,30 +1711,16 @@ fn geometry_records(
             }
             // Where the image sits and which file it shows, as the drawing
             // records them; the pixels are not part of the drawing.
-            Entity::Image(i) => {
-                v.insert("insertion".into(), rounder.pt3(i.insertion_point));
-                v.insert("u_vector".into(), rounder.pt3(i.u_vector));
-                v.insert("v_vector".into(), rounder.pt3(i.v_vector));
-                v.insert("size_px".into(), json!([i.size_pixels.x, i.size_pixels.y]));
-                let definition = i
-                    .definition
-                    .resolved()
-                    .and_then(|h| db.tables.image_definitions.get(h));
-                v.insert(
-                    "file_path".into(),
-                    json!(definition.and_then(|d| d.file_path.as_deref())),
-                );
-                v.insert("clipping".into(), json!(i.clipping));
-            }
+            Entity::Image(i) => image_fields(i, db, rounder, &mut v),
             _ => {
-                confidence = "estimated";
-                why = Some("no measure is computed for this type; the record gives its extent");
+                m.confidence = "estimated";
+                m.why = Some("no measure is computed for this type; the record gives its extent");
             }
         }
-        let (confidence, capped) = capped_confidence(confidence, e.common().confidence);
+        let (confidence, capped) = capped_confidence(m.confidence, e.common().confidence);
         v.insert("unit".into(), json!(unit));
         v.insert("confidence".into(), json!(confidence));
-        if let Some(w) = capped.or(why) {
+        if let Some(w) = capped.or(m.why) {
             v.insert("why".into(), json!(w));
         }
         v.insert("bbox".into(), rounder.rect(&bbox));
@@ -1938,6 +1730,308 @@ fn geometry_records(
     regions.sort_by_cached_key(|r| id_key(&r.id));
     label_regions(&outlines, texts, &mut regions);
     (geometry, regions)
+}
+
+/// How far a record's measures can be trusted, and why not when they are not
+/// exact.
+struct Measure {
+    confidence: &'static str,
+    why: Option<&'static str>,
+}
+
+impl Default for Measure {
+    fn default() -> Self {
+        Measure {
+            confidence: "exact",
+            why: None,
+        }
+    }
+}
+
+/// A closed polyline's outline with what was measured of it.
+struct ClosedShape {
+    area: f64,
+    length: f64,
+    simple: Option<bool>,
+    points: Vec<uncad_model::Point2D>,
+    vertex_count: usize,
+}
+
+/// The fields of a line's geometry record.
+fn line_fields(l: &uncad_model::model::LineEntity, rounder: &Rounder, v: &mut Map<String, Value>) {
+    v.insert("from".into(), rounder.pt3(l.start_point));
+    v.insert("to".into(), rounder.pt3(l.end_point));
+    // `length` is the length the file holds: the 3D distance.
+    // `length_plan` and `dz` are added only when the line leaves
+    // the plane, the only signal in an otherwise planar record
+    // that it does.
+    let (dx, dy, dz) = (
+        l.end_point.x - l.start_point.x,
+        l.end_point.y - l.start_point.y,
+        l.end_point.z - l.start_point.z,
+    );
+    let plan = dx.hypot(dy);
+    v.insert("length".into(), json!(rounder.derived(plan.hypot(dz))));
+    if rounder.derived(dz) != 0.0 {
+        v.insert("length_plan".into(), json!(rounder.derived(plan)));
+        v.insert("dz".into(), json!(rounder.derived(dz)));
+    }
+}
+
+/// The fields of an arc's geometry record.
+fn arc_fields(
+    a: &uncad_model::model::ArcEntity,
+    rounder: &Rounder,
+    v: &mut Map<String, Value>,
+    m: &mut Measure,
+) {
+    // Its own plane to the world: a mirrored arc (normal
+    // (0,0,-1)) runs clockwise there, so its world arc runs
+    // counter-clockwise from the image of its end to the image
+    // of its start.
+    let plane = geom::plane_to_world(a.extrusion, a.center.z);
+    let center = plane.apply(uncad_model::Point2D {
+        x: a.center.x,
+        y: a.center.y,
+    });
+    let (start, end) = if geom::is_similarity(&plane) {
+        let turn = |angle: f64| {
+            let (s, c) = angle.sin_cos();
+            (plane.b * c + plane.d * s).atan2(plane.a * c + plane.c * s)
+        };
+        if plane.determinant() < 0.0 {
+            (turn(a.end_angle), turn(a.start_angle))
+        } else {
+            (turn(a.start_angle), turn(a.end_angle))
+        }
+    } else {
+        m.confidence = "estimated";
+        m.why = Some("drawn in a tilted plane: the centre is its plan projection, the angles are the arc's own");
+        (a.start_angle, a.end_angle)
+    };
+    v.insert("center".into(), rounder.pt2(center));
+    v.insert("r".into(), json!(rounder.derived(a.radius)));
+    v.insert(
+        "start_deg".into(),
+        json!(rounder.derived(start.to_degrees())),
+    );
+    v.insert("end_deg".into(), json!(rounder.derived(end.to_degrees())));
+    // How far it runs is the model's: a mirror turns its
+    // direction, not its length. An arc with no sweep (equal
+    // angles) draws nothing, so it has no extent and no record;
+    // `report.json` names it.
+    if let Some(sweep) = a.sweep() {
+        v.insert(
+            "sweep_deg".into(),
+            json!(rounder.derived(sweep.to_degrees())),
+        );
+        v.insert("length".into(), json!(rounder.derived(a.radius * sweep)));
+    }
+}
+
+/// The fields of a circle's geometry record.
+fn circle_fields(
+    c: &uncad_model::model::CircleEntity,
+    rounder: &Rounder,
+    v: &mut Map<String, Value>,
+    m: &mut Measure,
+) {
+    use std::f64::consts::{PI, TAU};
+    let plane = geom::plane_to_world(c.extrusion, c.center.z);
+    let center = plane.apply(uncad_model::Point2D {
+        x: c.center.x,
+        y: c.center.y,
+    });
+    if !geom::is_similarity(&plane) {
+        m.why = Some("drawn in a tilted plane: the centre is its plan projection");
+    }
+    v.insert("center".into(), rounder.pt2(center));
+    v.insert("r".into(), json!(rounder.derived(c.radius)));
+    v.insert("length".into(), json!(rounder.derived(TAU * c.radius)));
+    v.insert(
+        "area".into(),
+        json!(rounder.derived(PI * c.radius * c.radius)),
+    );
+}
+
+/// The fields of an ellipse's geometry record.
+fn ellipse_fields(
+    el: &uncad_model::model::EllipseEntity,
+    rounder: &Rounder,
+    v: &mut Map<String, Value>,
+    m: &mut Measure,
+) {
+    use std::f64::consts::{PI, TAU};
+    let a = el.major_axis_endpoint.x.hypot(el.major_axis_endpoint.y);
+    v.insert("center".into(), rounder.pt3(el.center));
+    v.insert("major_axis".into(), rounder.pt3(el.major_axis_endpoint));
+    v.insert("ratio".into(), json!(rounder.derived(el.axis_ratio)));
+    if el.sweep() == TAU {
+        v.insert(
+            "area".into(),
+            json!(rounder.derived(PI * a * a * el.axis_ratio)),
+        );
+    } else {
+        m.confidence = "unavailable";
+        m.why = Some("elliptical arc length is not computed");
+    }
+}
+
+/// The fields of a polyline's geometry record, and the closed shape it
+/// outlines when its area can be measured.
+fn polyline_fields(
+    p: &uncad_model::model::LwPolylineEntity,
+    rounder: &Rounder,
+    v: &mut Map<String, Value>,
+    m: &mut Measure,
+) -> Option<ClosedShape> {
+    // The vertices in the world, when the plane maps arcs to
+    // arcs; a tilted plane's are projected, and its lengths and
+    // area are measured in its own plane instead.
+    let plane = geom::plane_to_world(p.extrusion, p.elevation);
+    let world = geom::map_polyline(&p.vertices, &plane);
+    let tilted = world.is_none();
+    let world_vertices = world.unwrap_or_else(|| {
+        p.vertices
+            .iter()
+            .map(|v| uncad_model::PolylineVertex {
+                point: plane.apply(v.point),
+                ..*v
+            })
+            .collect()
+    });
+    let measured_on = if tilted { &p.vertices } else { &world_vertices };
+    let bulged = world_vertices.iter().any(|v| v.bulge != 0.0);
+    v.insert("closed".into(), json!(p.closed));
+    v.insert(
+        "vfmt".into(),
+        json!(if bulged { "[x,y,bulge]" } else { "[x,y]" }),
+    );
+    let vertices: Vec<Value> = world_vertices
+        .iter()
+        .map(|vx| {
+            if bulged {
+                json!([
+                    rounder.coord(vx.point.x),
+                    rounder.coord(vx.point.y),
+                    vx.bulge
+                ])
+            } else {
+                rounder.pt2(vx.point)
+            }
+        })
+        .collect();
+    v.insert("vertices".into(), json!(vertices));
+    let length = geom::polyline_length(measured_on, p.closed);
+    v.insert(
+        if p.closed { "perimeter" } else { "length" }.into(),
+        json!(rounder.derived(length)),
+    );
+    if tilted {
+        m.confidence = "estimated";
+        m.why = Some("drawn in a tilted plane: the vertices are their plan projection, the length and area are measured in the entity's own plane");
+    }
+    let area = geom::polyline_area(measured_on, p.closed)?;
+    let signed = geom::polyline_signed_area(&world_vertices, p.closed);
+    let points: Vec<uncad_model::Point2D> = world_vertices.iter().map(|v| v.point).collect();
+    let simple = simple_outline(&points);
+    v.insert("area".into(), json!(rounder.derived(area)));
+    v.insert(
+        "orientation".into(),
+        json!(if signed >= 0.0 { "ccw" } else { "cw" }),
+    );
+    v.insert("simple".into(), json!(simple));
+    let outline_why = match simple {
+        Some(true) => None,
+        Some(false) => {
+            m.confidence = "unavailable";
+            Some("self-intersecting outline: the area has no meaning")
+        }
+        None => {
+            if m.confidence == "exact" {
+                m.confidence = "estimated";
+            }
+            Some(UNTESTED_OUTLINE)
+        }
+    };
+    m.why = outline_why.or(m.why);
+    Some(ClosedShape {
+        area,
+        length,
+        simple,
+        points,
+        vertex_count: p.vertices.len(),
+    })
+}
+
+/// The region record of a closed outline, with the confidence and reason of
+/// the geometry record it is built from.
+#[allow(clippy::too_many_arguments)]
+fn region_record(
+    e: &Entity,
+    id: &str,
+    bbox: Rect,
+    shape: &ClosedShape,
+    m: &Measure,
+    rounder: &Rounder,
+    unit: &str,
+    units: Option<&Units>,
+) -> Record {
+    let (region_confidence, capped) = capped_confidence(m.confidence, e.common().confidence);
+    let mut r = Map::new();
+    r.insert("id".into(), json!(id));
+    r.insert("handle".into(), handle_of(e.common()));
+    r.insert("src".into(), json!(e.type_name()));
+    r.insert("layer".into(), json!(layer_name(&e.common().layer)));
+    r.insert("area".into(), json!(rounder.derived(shape.area)));
+    r.insert("area_unit".into(), json!(area_unit(unit)));
+    r.insert(
+        "area_si".into(),
+        json!(units
+            .and_then(|u| u.to_mm)
+            .map(|mm| rounder.derived(shape.area * mm * mm / 1e6))),
+    );
+    r.insert("perimeter".into(), json!(rounder.derived(shape.length)));
+    r.insert(
+        "centroid".into(),
+        rounder.pt2(geom::polygon_centroid(&shape.points)),
+    );
+    r.insert("vertex_count".into(), json!(shape.vertex_count));
+    r.insert("simple".into(), json!(shape.simple));
+    // The same `confidence` *and the same `why`* as the
+    // geometry record this region is built from.
+    r.insert("confidence".into(), json!(region_confidence));
+    if let Some(w) = capped.or(m.why) {
+        r.insert("why".into(), json!(w));
+    }
+    r.insert("bbox".into(), rounder.rect(&bbox));
+    Record {
+        id: id.to_string(),
+        bbox,
+        value: r,
+    }
+}
+
+/// The fields of an image's geometry record.
+fn image_fields(
+    i: &uncad_model::model::ImageEntity,
+    db: &CadDatabase,
+    rounder: &Rounder,
+    v: &mut Map<String, Value>,
+) {
+    v.insert("insertion".into(), rounder.pt3(i.insertion_point));
+    v.insert("u_vector".into(), rounder.pt3(i.u_vector));
+    v.insert("v_vector".into(), rounder.pt3(i.v_vector));
+    v.insert("size_px".into(), json!([i.size_pixels.x, i.size_pixels.y]));
+    let definition = i
+        .definition
+        .resolved()
+        .and_then(|h| db.tables.image_definitions.get(h));
+    v.insert(
+        "file_path".into(),
+        json!(definition.and_then(|d| d.file_path.as_deref())),
+    );
+    v.insert("clipping".into(), json!(i.clipping));
 }
 
 /// Gives every region the ids of the texts whose anchor lies inside it and
