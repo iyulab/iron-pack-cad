@@ -464,123 +464,42 @@ pub(crate) fn sidecar(
     records: &OnTiles<'_>,
     rounder: &Rounder,
 ) -> Value {
-    // Only tiles that were *written*: an empty tile gets no .png and no
-    // .json, so a reader panning by `neighbors` must not be sent to one.
-    // tiles.json still lists the empty ones, with their reason.
-    let find = |z: u32, row: i64, col: i64| -> Option<String> {
-        if row < 0 || col < 0 {
-            return None;
-        }
-        tiles
-            .iter()
-            .find(|t| t.z == z && i64::from(t.row) == row && i64::from(t.col) == col && !t.empty)
-            .map(|t| t.id.clone())
-    };
-    let (r, c) = (i64::from(tile.row), i64::from(tile.col));
-    let neighbors = json!({
-        "n": find(tile.z, r - 1, c),
-        "s": find(tile.z, r + 1, c),
-        "w": find(tile.z, r, c - 1),
-        "e": find(tile.z, r, c + 1),
-    });
-    let centre = Point2D {
-        x: (tile.world.min_x + tile.world.max_x) / 2.0,
-        y: (tile.world.min_y + tile.world.max_y) / 2.0,
-    };
-    let parent = tiles
-        .iter()
-        .find(|t| {
-            t.z + 1 == tile.z
-                && !t.empty
-                && t.world.min_x <= centre.x
-                && centre.x <= t.world.max_x
-                && t.world.min_y <= centre.y
-                && centre.y <= t.world.max_y
-        })
-        .map(|t| t.id.clone());
-    let children: Vec<String> = tiles
-        .iter()
-        .filter(|t| t.z == tile.z + 1 && t.world.intersects(&tile.world) && !t.empty)
-        .map(|t| t.id.clone())
-        .collect();
-    fn on_tile<'a>(records: &'a [Record], world: &Rect) -> Vec<&'a Record> {
-        records
-            .iter()
-            .filter(|rec| rec.bbox.intersects(world))
-            .collect()
-    }
-    let truncate = |s: &str| -> String {
-        if s.chars().count() > 24 {
-            let cut: String = s.chars().take(24).collect();
-            format!("{cut}...")
-        } else {
-            s.to_string()
-        }
-    };
-    let (on_texts, on_dims, on_blocks, on_regions, on_geometry) = (
-        on_tile(records.texts, &tile.world),
-        on_tile(records.dims, &tile.world),
-        on_tile(records.blocks, &tile.world),
-        on_tile(records.regions, &tile.world),
-        on_tile(records.geometry, &tile.world),
-    );
-    let rows = |on: &[&Record], third: &dyn Fn(&Record) -> Vec<Value>| -> Vec<Value> {
-        on.iter()
-            .take(MAX_SIDECAR_ROWS)
-            .map(|rec| {
-                let mut row = vec![json!(rec.id), json!(img.px_box(&rec.bbox))];
-                row.extend(third(rec));
-                Value::Array(row)
-            })
-            .collect()
-    };
-    let field = |rec: &Record, key: &str| rec.value.get(key).cloned().unwrap_or(Value::Null);
-    let mut text_rows = rows(&on_texts, &|rec| {
-        vec![json!(truncate(
-            rec.value.get("text").and_then(Value::as_str).unwrap_or("")
-        ))]
-    });
-    let mut dim_rows = rows(&on_dims, &|rec| {
-        vec![
-            json!(truncate(
-                rec.value
-                    .get("display")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-            )),
-            field(rec, "measurement_stored"),
-            field(rec, "measurement_from_points"),
-        ]
-    });
-    let mut block_rows = rows(&on_blocks, &|rec| vec![field(rec, "block")]);
-    let mut region_rows = rows(&on_regions, &|rec| vec![field(rec, "area")]);
-    // The geometry -- the bulk of every tile. It is cut first when the file
-    // has to shrink (a text or a dimension is what a reader came for), so
-    // `counts`, which is never truncated, and `geometry_by_kind` are what
-    // say how much is really there.
-    let mut geometry_rows = rows(&on_geometry, &|rec| vec![field(rec, "type")]);
+    let TileLinks {
+        neighbors,
+        parent,
+        children,
+    } = tile_links(tile, tiles);
+    let on = TileRecords::of(records, &tile.world);
+    let TileRows {
+        mut text_rows,
+        mut dim_rows,
+        mut block_rows,
+        mut region_rows,
+        mut geometry_rows,
+    } = on.rows(img);
     let mut geometry_by_kind: BTreeMap<String, usize> = BTreeMap::new();
-    for rec in &on_geometry {
+    for rec in &on.geometry {
         if let Some(Value::String(t)) = rec.value.get("type") {
             *geometry_by_kind.entry(t.clone()).or_default() += 1;
         }
     }
     let counts = json!({
-        "texts": on_texts.len(),
-        "dims": on_dims.len(),
-        "blocks": on_blocks.len(),
-        "regions": on_regions.len(),
-        "geometry": on_geometry.len(),
+        "texts": on.texts.len(),
+        "dims": on.dims.len(),
+        "blocks": on.blocks.len(),
+        "regions": on.regions.len(),
+        "geometry": on.geometry.len(),
     });
     // Every record on the tile, geometry included, computed before the
     // shrink loop so the layer set stays complete even when rows are cut.
     let mut layer_set: BTreeSet<String> = BTreeSet::new();
-    for rec in on_texts
+    for rec in on
+        .texts
         .iter()
-        .chain(on_dims.iter())
-        .chain(on_blocks.iter())
-        .chain(on_regions.iter())
-        .chain(on_geometry.iter())
+        .chain(on.dims.iter())
+        .chain(on.blocks.iter())
+        .chain(on.regions.iter())
+        .chain(on.geometry.iter())
     {
         if let Some(Value::String(l)) = rec.value.get("layer") {
             layer_set.insert(l.clone());
@@ -634,11 +553,11 @@ pub(crate) fn sidecar(
         value
     };
     let mut truncated = [
-        (text_rows.len(), on_texts.len()),
-        (dim_rows.len(), on_dims.len()),
-        (block_rows.len(), on_blocks.len()),
-        (region_rows.len(), on_regions.len()),
-        (geometry_rows.len(), on_geometry.len()),
+        (text_rows.len(), on.texts.len()),
+        (dim_rows.len(), on.dims.len()),
+        (block_rows.len(), on.blocks.len()),
+        (region_rows.len(), on.regions.len()),
+        (geometry_rows.len(), on.geometry.len()),
     ]
     .iter()
     .any(|(rows, all)| rows < all);
@@ -696,6 +615,153 @@ pub(crate) fn sidecar(
         );
     }
     value
+}
+
+/// Where a tile sits among the written ones: its four neighbours, its parent
+/// and its children.
+struct TileLinks {
+    neighbors: Value,
+    parent: Option<String>,
+    children: Vec<String>,
+}
+
+fn tile_links(tile: &Tile, tiles: &[Tile]) -> TileLinks {
+    // Only tiles that were *written*: an empty tile gets no .png and no
+    // .json, so a reader panning by `neighbors` must not be sent to one.
+    // tiles.json still lists the empty ones, with their reason.
+    let find = |z: u32, row: i64, col: i64| -> Option<String> {
+        if row < 0 || col < 0 {
+            return None;
+        }
+        tiles
+            .iter()
+            .find(|t| t.z == z && i64::from(t.row) == row && i64::from(t.col) == col && !t.empty)
+            .map(|t| t.id.clone())
+    };
+    let (r, c) = (i64::from(tile.row), i64::from(tile.col));
+    let neighbors = json!({
+        "n": find(tile.z, r - 1, c),
+        "s": find(tile.z, r + 1, c),
+        "w": find(tile.z, r, c - 1),
+        "e": find(tile.z, r, c + 1),
+    });
+    let centre = Point2D {
+        x: (tile.world.min_x + tile.world.max_x) / 2.0,
+        y: (tile.world.min_y + tile.world.max_y) / 2.0,
+    };
+    let parent = tiles
+        .iter()
+        .find(|t| {
+            t.z + 1 == tile.z
+                && !t.empty
+                && t.world.min_x <= centre.x
+                && centre.x <= t.world.max_x
+                && t.world.min_y <= centre.y
+                && centre.y <= t.world.max_y
+        })
+        .map(|t| t.id.clone());
+    let children: Vec<String> = tiles
+        .iter()
+        .filter(|t| t.z == tile.z + 1 && t.world.intersects(&tile.world) && !t.empty)
+        .map(|t| t.id.clone())
+        .collect();
+    TileLinks {
+        neighbors,
+        parent,
+        children,
+    }
+}
+
+/// The records that touch one tile, by kind.
+struct TileRecords<'a> {
+    texts: Vec<&'a Record>,
+    dims: Vec<&'a Record>,
+    blocks: Vec<&'a Record>,
+    regions: Vec<&'a Record>,
+    geometry: Vec<&'a Record>,
+}
+
+/// The positional rows of a tile's records, by kind (cut to
+/// [`MAX_SIDECAR_ROWS`] each).
+struct TileRows {
+    text_rows: Vec<Value>,
+    dim_rows: Vec<Value>,
+    block_rows: Vec<Value>,
+    region_rows: Vec<Value>,
+    geometry_rows: Vec<Value>,
+}
+
+impl<'a> TileRecords<'a> {
+    fn of(records: &OnTiles<'a>, world: &Rect) -> Self {
+        fn on_tile<'a>(records: &'a [Record], world: &Rect) -> Vec<&'a Record> {
+            records
+                .iter()
+                .filter(|rec| rec.bbox.intersects(world))
+                .collect()
+        }
+        TileRecords {
+            texts: on_tile(records.texts, world),
+            dims: on_tile(records.dims, world),
+            blocks: on_tile(records.blocks, world),
+            regions: on_tile(records.regions, world),
+            geometry: on_tile(records.geometry, world),
+        }
+    }
+
+    /// The rows each kind shows on the tile's sidecar. The geometry -- the
+    /// bulk of every tile -- is cut first when the file has to shrink.
+    fn rows(&self, img: &ImageInfo) -> TileRows {
+        let truncate = |s: &str| -> String {
+            if s.chars().count() > 24 {
+                let cut: String = s.chars().take(24).collect();
+                format!("{cut}...")
+            } else {
+                s.to_string()
+            }
+        };
+        let rows = |on: &[&Record], third: &dyn Fn(&Record) -> Vec<Value>| -> Vec<Value> {
+            on.iter()
+                .take(MAX_SIDECAR_ROWS)
+                .map(|rec| {
+                    let mut row = vec![json!(rec.id), json!(img.px_box(&rec.bbox))];
+                    row.extend(third(rec));
+                    Value::Array(row)
+                })
+                .collect()
+        };
+        let field = |rec: &Record, key: &str| rec.value.get(key).cloned().unwrap_or(Value::Null);
+        let text_rows = rows(&self.texts, &|rec| {
+            vec![json!(truncate(
+                rec.value.get("text").and_then(Value::as_str).unwrap_or("")
+            ))]
+        });
+        let dim_rows = rows(&self.dims, &|rec| {
+            vec![
+                json!(truncate(
+                    rec.value
+                        .get("display")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                )),
+                field(rec, "measurement_stored"),
+                field(rec, "measurement_from_points"),
+            ]
+        });
+        let block_rows = rows(&self.blocks, &|rec| vec![field(rec, "block")]);
+        let region_rows = rows(&self.regions, &|rec| vec![field(rec, "area")]);
+        // The geometry -- the bulk of every tile. It is cut first when the file
+        // has to shrink (a text or a dimension is what a reader came for), so
+        // `counts`, which is never truncated, and `geometry_by_kind` are what
+        // say how much is really there.
+        let geometry_rows = rows(&self.geometry, &|rec| vec![field(rec, "type")]);
+        TileRows {
+            text_rows,
+            dim_rows,
+            block_rows,
+            region_rows,
+            geometry_rows,
+        }
+    }
 }
 
 #[cfg(test)]
